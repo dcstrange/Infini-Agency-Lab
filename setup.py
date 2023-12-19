@@ -7,12 +7,12 @@ with open('requirements.txt') as f:
 setup(
     name='agency-swarm',
     version='0.1.0',
-    author='VRSEN',
-    author_email='arseny9795@gmail.com',
+    author='Diansen Sun',
+    author_email='diansensun@gmail.com',
     description='Replace your own agency with an agent swarm.',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
-    url='https://github.com/VRSEN/agency-swarm',
+    url='https://github.com/dcstrange/agency-swarm.git@dbOps_Agency',
     packages=find_packages(),
     install_requires=requirements,
     classifiers=[
