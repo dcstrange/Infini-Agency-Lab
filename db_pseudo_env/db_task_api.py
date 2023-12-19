@@ -35,4 +35,4 @@ def Assign_DB_Task(task_content):
 # Example usage
 Example = """I have a specific task interacting with a database environment that involves executing a SELECT query within a relational database. The database consists of two tables: Employees, which includes columns for EmployeeID (integer), Name (varchar), and DepartmentID (integer); and Departments, containing DepartmentID (integer) and DepartmentName (varchar). The task is to retrieve the names of employees who work in the 'IT' department. This requires a JOIN operation between the Employees and Departments tables on the DepartmentID column, along with a WHERE clause to filter for 'IT' in the DepartmentName column. The expected outcome is a list of names of employees in the IT department. A key aspect of this task is optimizing the query for performance due to the large number of rows in both tables."""
 
-Assign_DB_Task(Example)
+Assign_DB_Task(Example) 
