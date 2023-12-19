@@ -48,4 +48,7 @@ The expected outcome is a list of names of employees in the IT department.
 A key aspect of this task is optimizing the query for performance due to the large number of rows in both tables.
 """
 
-Assign_DB_Task(Example) 
+
+# Example usage within this file
+if __name__ == "__main__":
+    Assign_DB_Task(Example) 
