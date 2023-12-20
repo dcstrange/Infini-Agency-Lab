@@ -4,7 +4,7 @@ import uuid
 
 server_url = "http://127.0.0.1:5000"
 
-def send_task(task_content):
+def _send_task(task_content):
     task_id = str(uuid.uuid4())
     response = requests.post(f"{server_url}/task", json={"task_id": task_id, "task_content": task_content})
     if response.status_code == 200:
@@ -14,25 +14,29 @@ def send_task(task_content):
         print(f"Failed to send text:{response.status_code}")
         return None
 
-def get_reply(task_id):
-    while True:
+def _get_reply(task_id, timeout=-1, interval=5):
+    response = None
+    while timeout > 0:
         response = requests.get(f"{server_url}/result", params={"task_id": task_id})
         if response.status_code == 200:
             reply = response.json()['response']
             if reply != 'No reply yet':
                 print(f"Reply: {reply}")
                 break
-        time.sleep(5)
+        time.sleep(interval)
+        timeout -= interval
     return response
 
 
-def Assign_DB_Task(task_content):
-    task_id = send_task(task_content)
+def Assign_DB_Task(task_content, timeout=86400):
+    task_id = _send_task(task_content)
     if task_id:
-        response = get_reply(task_id)
-        print(response.json())
+        response = _get_reply(task_id, timeout = timeout)
+        if response is None:
+            return "Failed to assign task: timeout"
+        #print(response.json())
     else:
-        return "Failed to assign task"
+        return "Failed to assign task: no task ID"
     return response.json()
     
     
