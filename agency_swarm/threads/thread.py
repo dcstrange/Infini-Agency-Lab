@@ -55,6 +55,7 @@ class Thread:
                     thread_id=self.thread.id,
                     run_id=self.run.id
                 )
+                print(f"Run [{self.run.id}] Status: {self.run.status}")
 
             # function execution
             if self.run.status == "requires_action":
