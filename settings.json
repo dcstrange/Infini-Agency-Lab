@@ -1,0 +1,26 @@
+[
+    {
+        "id": "asst_fY8u86dNMMY6yiXvsHYoqw2T",
+        "created_at": 1705572449,
+        "description": "description",
+        "file_ids": [],
+        "instructions": "description",
+        "metadata": {},
+        "model": "gpt-4-1106-preview",
+        "name": "agent1",
+        "object": "assistant",
+        "tools": []
+    },
+    {
+        "id": "asst_eWqqI6zgcMkuA8CT73DOWzys",
+        "created_at": 1705572449,
+        "description": "description",
+        "file_ids": [],
+        "instructions": "description",
+        "metadata": {},
+        "model": "gpt-4-1106-preview",
+        "name": "agent2",
+        "object": "assistant",
+        "tools": []
+    }
+]

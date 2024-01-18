@@ -3,7 +3,7 @@ import unittest
 
 from agency_swarm import set_openai_key
 from agency_swarm.agency.agency import Agency
-from agency_swarm.threads import Thread
+from agency_swarm.threads_deprecated import Thread
 from tests.ceo.ceo import Ceo
 from .test_agent.test_agent import TestAgent
 from .test_agent2.test_agent2 import TestAgent2
