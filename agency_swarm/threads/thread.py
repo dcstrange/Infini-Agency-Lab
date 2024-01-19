@@ -22,7 +22,6 @@ class ThreadProperty(Enum):
 class Thread:
     thread_id: str = None
     openai_thread = None
-    session = None
     assistant_id: str = None
     instruction: str = None
     topic: str = None

@@ -21,7 +21,6 @@ class Session:
         self.client = get_openai_client()
         if not self.caller_thread:
             self.caller_thread = Thread()
-            self.caller_thread.session = self
             
     def get_completion(self, 
                        message:str, 
@@ -58,11 +57,13 @@ class Session:
                 msg.cprint()
         except StopIteration as e:
             pass
-            # # 当会话超时，不能释放Thread对象
             # print(f"@@@@ DEBUG: Block Here!!{e.value}")
             # # while True:
             # time.sleep(5)
             # # TODO:check是否recipient thread有更新消息
+        except Exception as e: # 当会话超时，不能释放Thread对象
+            print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
+            raise e
         
         # 成功得到recipient回复后
         recipient.status = ThreadStatus.Ready
@@ -125,12 +126,15 @@ class Session:
                     if inspect.isgenerator(output):
                         try:
                             while True:
-                                item = next(output)
+                                item = next(output) # 可能会抛出超时异常(Error Code: 400)
                                 if isinstance(item, MessageOutput) and yield_messages:
                                     yield item
                         except StopIteration as e:
                             output = e.value
                             print(output)
+                        except Exception as e:
+                            print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
+                            raise e
                     else:
                         if yield_messages:
                             yield MessageOutput("function_output", tool_call.function.name, self.recipient_agent.name,
@@ -176,7 +180,8 @@ class Session:
 # Example usage within this file
 if __name__ == "__main__":
     from agency_swarm import set_openai_key
-    set_openai_key("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")
+    from getpass import getpass
+    set_openai_key(getpass("Please enter your openai key: "))
 
     agent1 = Agent(name="agent1",
                      tools=None,
