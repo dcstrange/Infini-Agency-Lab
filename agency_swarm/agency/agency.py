@@ -8,7 +8,7 @@ from pydantic import Field, field_validator
 from rich.console import Console
 
 from agency_swarm.agents import Agent
-#from agency_swarm.threads_deprecated import Thread
+from agency_swarm.sessions import Session
 from agency_swarm.tools import BaseTool
 from agency_swarm.user import User
 
@@ -19,18 +19,17 @@ class Agency:
 
     def __init__(self, agency_chart, shared_instructions="", shared_files=None):
         """
-        Initializes the Agency object, setting up agents, threads, and core functionalities.
+        Initializes the Agency object, setting up agents, sessions, and core functionalities.
 
         Parameters:
         agency_chart: The structure defining the hierarchy and interaction of agents within the agency.
         shared_instructions (str, optional): A path to a file containing shared instructions for all agents. Defaults to an empty string.
-        shared_files (list, optional): A list of folder paths with files containing shared resources for all agents. Defaults to an empty list.
 
-        This constructor initializes various components of the Agency, including CEO, agents, threads, and user interactions. It parses the agency chart to set up the organizational structure and initializes the messaging tools, agents, and threads necessary for the operation of the agency. Additionally, it prepares a main thread for user interactions.
+        This constructor initializes various components of the Agency, including CEO, agents, sessions, and user interactions. It parses the agency chart to set up the organizational structure and initializes the messaging tools, agents, and sessions necessary for the operation of the agency. Additionally, it prepares a user entrance session for user interactions.
         """
         self.ceo = None
         self.agents = []
-        self.agents_and_threads = {}
+        self.agents_and_sessions = {}
         self.shared_files = shared_files if shared_files else []
 
         if os.path.isfile(os.path.join(self.get_class_folder_path(), shared_instructions)):
@@ -43,14 +42,15 @@ class Agency:
         self._parse_agency_chart(agency_chart)
         self._create_send_message_tools()
         self._init_agents()
-        self._init_threads()
+        self._init_sessions()
 
         self.user = User()
-        self.main_thread = Thread(self.user, self.ceo)
+        self.entrance_session = Session(self.user, self.ceo)
 
-    def get_completion(self, message: str, message_files=None, yield_messages=True):
+    def get_completion(self, message: str, message_files=None, 
+    yield_messages=True):
         """
-        Retrieves the completion for a given message from the main thread.
+        Retrieves the completion for a given message from the user entrance session.
 
         Parameters:
         message (str): The message for which completion is to be retrieved.
@@ -58,9 +58,9 @@ class Agency:
         yield_messages (bool, optional): Flag to determine if intermediate messages should be yielded. Defaults to True.
 
         Returns:
-        Generator or final response: Depending on the 'yield_messages' flag, this method returns either a generator yielding intermediate messages or the final response from the main thread.
+        Generator or final response: Depending on the 'yield_messages' flag, this method returns either a generator yielding intermediate messages or the final response from the entrance session.
         """
-        gen = self.main_thread.get_completion(message=message, message_files=message_files, yield_messages=yield_messages)
+        gen = self.entrance_session.get_completion(message=message, message_files=message_files, yield_messages=yield_messages)
 
         if not yield_messages:
             while True:
@@ -128,17 +128,17 @@ class Agency:
         """
         Runs a demonstration of the agency's capabilities in an interactive command line interface.
 
-        This function continuously prompts the user for input and displays responses from the agency's main thread. It leverages the generator pattern for asynchronous message processing.
+        This function continuously prompts the user for input and displays responses from the agency's entrance session. It leverages the generator pattern for asynchronous message processing.
 
         Output:
-        Outputs the responses from the agency's main thread to the command line.
+        Outputs the responses from the agency's entrance session to the command line.
         """
         while True:
             console.rule()
             text = input("USER: ")
 
             try:
-                gen = self.main_thread.get_completion(message=text)
+                gen = self.entrance_session.get_completion(message=text)
                 while True:
                     message = next(gen)
                     message.cprint()
@@ -155,7 +155,7 @@ class Agency:
 
         This method iterates through each node in the agency chart. If a node is an Agent, it is set as the CEO if not already assigned.
         If a node is a list, it iterates through the agents in the list, adding them to the agency and establishing communication
-        threads between them. It raises an exception if the agency chart is invalid or if multiple CEOs are defined.
+        sessions between them. It raises an exception if the agency chart is invalid or if multiple CEOs are defined.
         """
         for node in agency_chart:
             if isinstance(node, Agent):
@@ -174,14 +174,14 @@ class Agency:
                     if i == len(node) - 1:
                         continue
 
-                    if agent.name not in self.agents_and_threads.keys():
-                        self.agents_and_threads[agent.name] = {}
+                    if agent.name not in self.agents_and_sessions.keys():
+                        self.agents_and_sessions[agent.name] = {}
 
                     for other_agent in node:
                         if other_agent.name == agent.name:
                             continue
-                        if other_agent.name not in self.agents_and_threads[agent.name].keys():
-                            self.agents_and_threads[agent.name][other_agent.name] = {
+                        if other_agent.name not in self.agents_and_sessions[agent.name].keys():
+                            self.agents_and_sessions[agent.name][other_agent.name] = {
                                 "agent": agent.name,
                                 "recipient_agent": other_agent.name,
                             }
@@ -283,14 +283,14 @@ class Agency:
         """
         Creates and assigns 'SendMessage' tools to each agent based on the agency's structure.
 
-        This method iterates through the agents and threads in the agency, creating SendMessage tools for each agent. These tools enable agents to send messages to other agents as defined in the agency's structure. The SendMessage tools are tailored to the specific recipient agents that each agent can communicate with.
+        This method iterates through the agents and sessions in the agency, creating SendMessage tools for each agent. These tools enable agents to send messages to other agents as defined in the agency's structure. The SendMessage tools are tailored to the specific recipient agents that each agent can communicate with.
 
         No input parameters.
 
         No output parameters; this method modifies the agents' toolset internally.
         """
-        for agent_name, threads in self.agents_and_threads.items():
-            recipient_names = list(threads.keys())
+        for agent_name, sessions in self.agents_and_sessions.items():
+            recipient_names = list(sessions.keys())
             recipient_agents = self.get_agents_by_names(recipient_names)
             agent = self.get_agent_by_name(agent_name)
             agent.add_tool(self._create_send_message_tool(agent, recipient_agents))
@@ -298,7 +298,6 @@ class Agency:
     def _create_send_message_tool(self, agent: Agent, recipient_agents: List[Agent]):
         """
         Creates a SendMessage tool to enable an agent to send messages to specified recipient agents.
-
 
         Parameters:
         agent (Agent): The agent who will be sending messages.
@@ -321,11 +320,6 @@ class Agency:
 
         class SendMessage(BaseTool):
             """Use this tool to facilitate direct, synchronous communication between specialized agents within your agency. When you send a message using this tool, you receive a response exclusively from the designated recipient agent. To continue the dialogue, invoke this tool again with the desired recipient and your follow-up message. Remember, communication here is synchronous; the recipient agent won't perform any tasks post-response. You are responsible for relaying the recipient agent's responses back to the user, as they do not have direct access to these replies. Keep engaging with the tool for continuous interaction until the task is fully resolved."""
-            # instructions: str = Field(...,
-            #                               description="Please repeat your instructions step-by-step, including both completed "
-            #                                           "and the following next steps that you need to perfrom. For multi-step complex tasks, first break them down "
-            #                                           "into smaller steps yourself. Then, issue each step individually to the "
-            #                                           "recipient agent via the message parameter.")
             chain_of_thought: str = Field(...,
                                           description="Think step by step to determine the correct recipient and "
                                                       "message. For multi-step tasks, first break it down into smaller"
@@ -354,9 +348,8 @@ class Agency:
                 return value
 
             def run(self):
-                thread = outer_self.agents_and_threads[self.caller_agent_name][self.recipient.value]
-
-                gen = thread.get_completion(message=self.message, message_files=self.message_files)
+                session = outer_self.agents_and_sessions[self.caller_agent_name][self.recipient.value]
+                gen = session.get_completion(message=self.message, message_files=self.message_files)
                 try:
                     while True:
                         yield next(gen)
@@ -400,22 +393,21 @@ class Agency:
 
             agent.init_oai()
 
-    def _init_threads(self):
+    def _init_sessions(self):
         """
-        Initializes threads for communication between agents within the agency.
+        Initializes sessions for communication between agents within the agency.
 
-        This method creates Thread objects for each pair of interacting agents as defined in the agents_and_threads attribute of the Agency. Each thread facilitates communication and task execution between an agent and its designated recipient agent.
+        This method creates Session objects for each pair of interacting agents as defined in the agents_and_sessions attribute of the Agency. Each session facilitates communication and task execution between an agent and its designated recipient agent.
 
         No input parameters.
 
         Output Parameters:
-        This method does not return any value but updates the agents_and_threads attribute with initialized Thread objects.
+        This method does not return any value but updates the agents_and_sessions attribute with initialized Session objects.
         """
-        for agent_name, threads in self.agents_and_threads.items():
-            for other_agent, items in threads.items():
-                self.agents_and_threads[agent_name][other_agent] = Thread(self.get_agent_by_name(items["agent"]),
-                                                                          self.get_agent_by_name(
-                                                                              items["recipient_agent"]))
+        for agent_name, sessions in self.agents_and_sessions.items():
+            for other_agent, items in sessions.items():
+                self.agents_and_sessions[agent_name][other_agent] = Session(self.get_agent_by_name(items["agent"]),
+                                                                            self.get_agent_by_name(items["recipient_agent"]))
 
     def get_class_folder_path(self):
         """
