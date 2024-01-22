@@ -1,10 +1,3 @@
-import inspect
-import time
-from typing import Literal
-
-from agency_swarm.agents import Agent
-from agency_swarm.messages import MessageOutput
-from agency_swarm.user import User
 from agency_swarm.util.oai import get_openai_client
 
 from enum import Enum
@@ -22,15 +15,17 @@ class ThreadProperty(Enum):
 class Thread:
     thread_id: str = None
     openai_thread = None
-    assistant_id: str = None
     instruction: str = None
     topic: str = None
     summary: str = None
     in_message_chain: str = None
-    status: ThreadStatus = None
-    properties: ThreadProperty = None
-
-    def __init__(self, thread_id: str=None):
+    status: ThreadStatus = ThreadStatus.Ready
+    properties: ThreadProperty = ThreadProperty.OneOff
+    session_as_sender = None    # 用于python线程异常挂掉后的处理
+    session_as_recipient= None # 用于python线程异常挂掉后的处理
+    instruction: str = None
+    
+    def __init__(self, thread_id: str=None, copy_from=None):
         self.client = get_openai_client()
         if thread_id:
             self.thread_id = thread_id
@@ -38,6 +33,9 @@ class Thread:
         else:
             self.openai_thread = self.client.beta.threads.create()
             self.thread_id = self.openai_thread.id
-
-        def _dump_info(self):
+        if copy_from is not None:
+            # TODO: copy all message from a existed thread
             pass
+
+    def _dump_info(self):
+        pass
