@@ -1,6 +1,8 @@
 import inspect
 import os
 import uuid
+import concurrent.futures
+
 from enum import Enum
 from typing import List
 
@@ -362,14 +364,29 @@ class Agency:
                 #===================# python.thread.create()====================================
                 # TODO: 创建新的Python线程执行session
                 caller_thread.session_as_sender = session
-                response = session.get_completion(message=self.message, message_files=self.message_files)
-                #======================# python.thread.wait_to_join()=================================
                 
-                return response or ""
+                try:
+                    while True:
+                        yield next(gen)
+                except StopIteration as e:
+                    message = e.value
+                #======================# python.thread.wait_to_join()=================================
+
+                return message or ""
 
         # TODO: 每个Agent有自己的SendMessage对象。但是当前这个版本认为一个Agent在某一时刻只能有一个SendMessage函数被调用。
         # 实际上，在Session模型中，一个Agent有多个Thread，因此可能会有多个SendMessage并行。所以需要注意全局变量的使用。
         return SendMessage 
+    
+    def _session_get_completion(session:Session, 
+                                message:str, 
+                                message_files=None, 
+                                topic: str=None,
+                                is_persist: bool=False,
+                                yield_messages=True):
+        ret = session.get_completion(message=message, message_files=message_files,topic=topic,is_persist=is_persist,yield_messages=yield_messages)
+        return ret
+
 
     def get_recipient_names(self):
         """

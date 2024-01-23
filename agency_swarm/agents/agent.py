@@ -34,7 +34,8 @@ class Agent():
 
     def add_thread(self, thread:Thread):
         ## Mutex
-        self._threads.append(thread)  # 提供一个方法来追加项目到数组
+        if thread not in self._threads:
+            self._threads.append(thread)  # 提供一个方法来追加项目到数组
         ## Mutex
     def remove_thread(self, thread:Thread):
         ## Mutex

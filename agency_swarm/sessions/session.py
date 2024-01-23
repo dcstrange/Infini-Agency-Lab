@@ -49,31 +49,29 @@ class Session:
         recipient_thread.session_as_recipient = self
         recipient_thread.properties = ThreadProperty.Persist if is_persist else recipient_thread.properties
 
+        # 向recipient thread发送消息并获取回复
         gen = self._get_completion_from_thread(recipient_thread, message, message_files, yield_messages)
         try:
             while True:
                 msg = next(gen)
                 msg.cprint()
         except StopIteration as e:
-            pass
-            # print(f"@@@@ DEBUG: Block Here!!{e.value}")
-            # # while True:
-            # time.sleep(5)
-            # # TODO:check是否recipient thread有更新消息
+            response = e.value
+            print(response)
         except Exception as e: # 当会话超时，不能释放Thread对象
             print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
             raise e
+            # # TODO:check是否recipient thread有更新消息
         
-        # 成功得到recipient回复后
-
-        
-        
+        # 成功得到recipient回复后，根据recipient thread属性决定如何做后处理
         if recipient_thread.properties is ThreadProperty.OneOff:
-            recipient_thread = None
-            return
+            recipient_thread = None # 直接释放recipient thread
+            return response
         elif recipient_thread.properties is ThreadProperty.Persist:
+            # 保存recipient thread
             if recipient_thread not in self.cached_recipient_threads:
                 self.cached_recipient_threads.append(recipient_thread)
+            self.recipient_agent.add_thread(recipient_thread) 
         elif recipient_thread.properties is ThreadProperty.CoW:
             # TODO: merge to original thread.
             pass
@@ -82,6 +80,7 @@ class Session:
         recipient_thread.status = ThreadStatus.Ready
         recipient_thread.session_as_recipient = None
         # Unlock the recipient_thread
+        return response
 
 
     def _get_completion_from_thread(self, recipien_thread: Thread, message: str, message_files=None, yield_messages=True):
@@ -154,6 +153,7 @@ class Session:
                     run_id=run.id,
                     tool_outputs=tool_outputs
                 )
+                # TODO: 需要考虑提交tool结果是否会失败。例如因为tool执行时间过长，run被自动关闭。这时候需要重新执行run并快速提交上次结果。
             # error
             elif run.status == "failed":
                 raise Exception("Run Failed. Error: ", run.last_error)
@@ -182,6 +182,26 @@ class Session:
     def _is_topic_related(self, recipient_thread: Thread, topic: str) -> bool:
         return recipient_thread.topic ==  topic
 
+    def _execute_tool(self, tool_call, caller_thread):
+        funcs = self.recipient_agent.functions
+        func = next((func for func in funcs if func.__name__ == tool_call.function.name), None)
+
+        if not func:
+            return f"Error: Function {tool_call.function.name} not found. Available functions: {[func.__name__ for func in funcs]}"
+
+        try:
+            # init tool
+            func = func(**eval(tool_call.function.arguments))
+            func.caller_agent = self.recipient_agent
+            # get outputs from the tool
+            output = func.run(caller_thread)
+
+            return output
+        except Exception as e:
+            error_message = f"Error: {e}"
+            if "For further information visit" in error_message:
+                error_message = error_message.split("For further information visit")[0]
+            return error_message
 
 # Example usage within this file
 if __name__ == "__main__":
@@ -203,5 +223,5 @@ if __name__ == "__main__":
     agent2.init_oai()
     sender_thread = Thread()
     session = Session(agent1, agent2,sender_thread)
-    session.get_completion("hello world.")
+    session.get_completion("hello world.", topic="hello",is_persist=True)
     
