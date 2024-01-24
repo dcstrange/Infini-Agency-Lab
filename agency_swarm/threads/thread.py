@@ -21,7 +21,7 @@ class Thread:
     in_message_chain: str = None
     status: ThreadStatus = ThreadStatus.Ready
     properties: ThreadProperty = ThreadProperty.OneOff
-    sessions = {} # {"recipient agent", session}
+    sessions = {} # {"recipient agent name", session}
     session_as_sender = None    # 用于python线程异常挂掉后的处理
     session_as_recipient= None # 用于python线程异常挂掉后的处理
     instruction: str = None

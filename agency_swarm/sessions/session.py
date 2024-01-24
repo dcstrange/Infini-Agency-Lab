@@ -45,9 +45,12 @@ class Session:
             recipient_thread = Thread()
 
         recipient_thread.status = ThreadStatus.Running
-        recipient_thread.in_message_chain = self.caller_thread.in_message_chain
         recipient_thread.session_as_recipient = self
         recipient_thread.properties = ThreadProperty.Persist if is_persist else recipient_thread.properties
+        if isinstance(self.caller_agent, User):
+            recipient_thread.in_message_chain = self.caller_agent.uuid
+        else:
+            recipient_thread.in_message_chain = self.caller_thread.in_message_chain
 
         # 向recipient thread发送消息并获取回复
         gen = self._get_completion_from_thread(recipient_thread, message, message_files, yield_messages)
@@ -55,9 +58,9 @@ class Session:
             while True:
                 msg = next(gen)
                 msg.cprint()
+                yield msg
         except StopIteration as e:
             response = e.value
-            print(response)
         except Exception as e: # 当会话超时，不能释放Thread对象
             print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
             raise e
@@ -83,16 +86,16 @@ class Session:
         return response
 
 
-    def _get_completion_from_thread(self, recipien_thread: Thread, message: str, message_files=None, yield_messages=True):
+    def _get_completion_from_thread(self, recipient_thread: Thread, message: str, message_files=None, yield_messages=True):
 
         # Determine the sender's name based on the agent type
         sender_name = "user" if isinstance(self.caller_agent, User) else self.caller_agent.name
-        playground_url = f'https://platform.openai.com/playground?assistant={self.recipient_agent._assistant.id}&mode=assistant&thread={recipien_thread.thread_id}'
+        playground_url = f'https://platform.openai.com/playground?assistant={self.recipient_agent._assistant.id}&mode=assistant&thread={recipient_thread.thread_id}'
         print(f'THREAD:[ {sender_name} -> {self.recipient_agent.name} ]: URL {playground_url}')
 
         # send message
         self.client.beta.threads.messages.create(
-            thread_id=recipien_thread.thread_id,
+            thread_id=recipient_thread.thread_id,
             role="user",
             content=message,
             file_ids=message_files if message_files else [],
@@ -103,7 +106,7 @@ class Session:
 
         # create run
         run = self.client.beta.threads.runs.create(
-            thread_id=recipien_thread.thread_id,
+            thread_id=recipient_thread.thread_id,
             assistant_id=self. recipient_agent.id,
         )
         
@@ -112,7 +115,7 @@ class Session:
             while run.status in ['queued', 'in_progress']:
                 time.sleep(5)
                 run = self.client.beta.threads.runs.retrieve(
-                    thread_id=recipien_thread.thread_id,
+                    thread_id=recipient_thread.thread_id,
                     run_id=run.id
                 )
                 print(f"Run [{run.id}] Status: {run.status}")
@@ -127,7 +130,7 @@ class Session:
                                             str(tool_call.function))
                     
                     # TODO:这里如果是SendMessage函数，后续会采用创建新Python线程来执行，需要修改处理逻辑。
-                    output = self._execute_tool(tool_call)
+                    output = self._execute_tool(tool_call,recipient_thread)
                     if inspect.isgenerator(output):
                         try:
                             while True:
@@ -149,7 +152,7 @@ class Session:
 
                 # submit tool outputs
                 run = self.client.beta.threads.runs.submit_tool_outputs(
-                    thread_id=recipien_thread.thread_id,
+                    thread_id=recipient_thread.thread_id,
                     run_id=run.id,
                     tool_outputs=tool_outputs
                 )
@@ -160,7 +163,7 @@ class Session:
             # return assistant message
             else:
                 messages = self.client.beta.threads.messages.list(
-                    thread_id=recipien_thread.thread_id
+                    thread_id=recipient_thread.thread_id
                 )
                 message = messages.data[0].content[0].text.value
 
