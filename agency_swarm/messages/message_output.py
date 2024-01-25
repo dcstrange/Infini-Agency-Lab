@@ -55,7 +55,7 @@ class MessageOutput:
             return text
         
         if self.msg_type == "response_text":
-            text = f"{self.sender_name} 🗣️</response>  @{self.receiver_name}"
+            text = f"{self.sender_name} 🗣️(responses to)  @{self.receiver_name}"
             return text
 
         text = f"{self.sender_name} 🗣️ @{self.receiver_name}"

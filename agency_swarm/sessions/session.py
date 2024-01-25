@@ -39,10 +39,12 @@ class Session:
             recipient_thread = self._retrieve_topic_thread_from_recipient(topic) # # try to lock the recipient_thread
             if recipient_thread is None or recipient_thread.status is ThreadStatus.Running:
                 recipient_thread = Thread(copy_from=recipient_thread)
+                print(f'New THREAD:')
                 recipient_thread.topic = topic
         else:
             # 如果不需要与已有主题的thread对话
             recipient_thread = Thread()
+            print(f'New THREAD:')
 
         recipient_thread.status = ThreadStatus.Running
         recipient_thread.session_as_recipient = self
@@ -151,12 +153,21 @@ class Session:
                     tool_outputs.append({"tool_call_id": tool_call.id, "output": str(output)})
 
                 # submit tool outputs
-                run = self.client.beta.threads.runs.submit_tool_outputs(
-                    thread_id=recipient_thread.thread_id,
-                    run_id=run.id,
-                    tool_outputs=tool_outputs
-                )
-                # TODO: 需要考虑提交tool结果是否会失败。例如因为tool执行时间过长，run被自动关闭。这时候需要重新执行run并快速提交上次结果。
+                try:
+                    run = self.client.beta.threads.runs.submit_tool_outputs(
+                        thread_id=recipient_thread.thread_id,
+                        run_id=run.id,
+                        tool_outputs=tool_outputs
+                    )
+                except Exception as e:
+                    # TODO: 需要考虑提交tool结果是否会失败。例如因为tool执行时间过长，run被自动关闭。这时候需要重新执行run并快速提交上次结果。
+                    self.client.beta.threads.messages.create(
+                        thread_id=recipient_thread.thread_id,
+                        role="assistant",
+                        content=message,
+                        file_ids=message_files if message_files else [],
+                    )
+
             # error
             elif run.status == "failed":
                 raise Exception("Run Failed. Error: ", run.last_error)
