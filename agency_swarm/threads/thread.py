@@ -13,23 +13,22 @@ class ThreadProperty(Enum):
 
 
 class Thread:
-    thread_id: str = None
-    openai_thread = None
-    instruction: str = None
-    topic: str = None
-    summary: str = None
-    in_message_chain: str = None
-    status: ThreadStatus = ThreadStatus.Ready
-    properties: ThreadProperty = ThreadProperty.OneOff
-    sessions = {} # {"recipient agent name", session}
-    session_as_sender = None    # 用于python线程异常挂掉后的处理
-    session_as_recipient= None # 用于python线程异常挂掉后的处理
-    instruction: str = None
-    
     def __init__(self, thread_id: str=None, copy_from=None):
         self.client = get_openai_client()
-        if thread_id:
-            self.thread_id = thread_id
+        self.thread_id: str = thread_id
+        self.openai_thread = None
+        self.instruction: str = None
+        self.topic: str = None
+        self.summary: str = None
+        self.in_message_chain: str = None
+        self.status: ThreadStatus = ThreadStatus.Ready
+        self.properties: ThreadProperty = ThreadProperty.OneOff
+        self.sessions = {} # {"recipient agent name", session}
+        self.session_as_sender = None    # 用于python线程异常挂掉后的处理
+        self.session_as_recipient= None # 用于python线程异常挂掉后的处理
+        self.instruction: str = None
+        
+        if self.thread_id:
             self.openai_thread = self.client.beta.threads.retrieve(self.thread_id)
         else:
             self.openai_thread = self.client.beta.threads.create()

@@ -167,3 +167,7 @@ tests/agency_manifesto.txt
 tests/settings.json
 
 launch.json
+
+settings.json
+dba_agency
+secret-configs

@@ -40,11 +40,13 @@ class Session:
             if recipient_thread is None or recipient_thread.status is ThreadStatus.Running:
                 recipient_thread = Thread(copy_from=recipient_thread)
                 print(f'New THREAD:')
+                #print(f"recipient_thread.sessions.keys={recipient_thread.sessions.keys()}")
                 recipient_thread.topic = topic
         else:
             # 如果不需要与已有主题的thread对话
             recipient_thread = Thread()
             print(f'New THREAD:')
+            #print(f"recipient_thread.sessions.keys={recipient_thread.sessions.keys()}")
 
         recipient_thread.status = ThreadStatus.Running
         recipient_thread.session_as_recipient = self
@@ -110,7 +112,7 @@ class Session:
         # create run
         run = self.client.beta.threads.runs.create(
             thread_id=recipient_thread.thread_id,
-            assistant_id=self. recipient_agent.id,
+            assistant_id=self.recipient_agent.id,
         )
         
         while True: # Check state of Assistant AI running in the State-Machine
@@ -197,7 +199,7 @@ class Session:
     def _is_topic_related(self, recipient_thread: Thread, topic: str) -> bool:
         return recipient_thread.topic ==  topic
 
-    def _execute_tool(self, tool_call, caller_thread):
+    def _execute_tool(self, tool_call, caller_thread:Thread):
         funcs = self.recipient_agent.functions
         func = next((func for func in funcs if func.__name__ == tool_call.function.name), None)
 
