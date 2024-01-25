@@ -7,7 +7,7 @@ from agency_swarm.util.oai import get_openai_client
 console = Console()
 
 class MessageOutput:
-    def __init__(self, msg_type: Literal["function", "function_output", "text", "system"], sender_name: str, receiver_name: str, content):
+    def __init__(self, msg_type: Literal["function", "function_output", "text", "response_text", "system"], sender_name: str, receiver_name: str, content):
         self.msg_type = msg_type
         self.sender_name = str(sender_name)
         self.receiver_name = str(receiver_name)
@@ -52,6 +52,10 @@ class MessageOutput:
 
         if self.msg_type == "function_output":
             text = f"{self.sender_name} ⚙️Function Output"
+            return text
+        
+        if self.msg_type == "response_text":
+            text = f"{self.sender_name} 🗣️</response>  @{self.receiver_name}"
             return text
 
         text = f"{self.sender_name} 🗣️ @{self.receiver_name}"

@@ -1,8 +1,6 @@
 import inspect
 import os
 import uuid
-import concurrent.futures
-
 from enum import Enum
 from typing import List
 
@@ -44,7 +42,7 @@ class Agency:
         self._parse_agency_chart(agency_chart)
         self._create_send_message_tools()
         self._init_agents()
-        self._init_sessions()
+        #self._init_sessions() // No need to init sessions, cuz it is created dynamically in tasks. 
 
         self.user = User()
         self.entrance_session = Session(self.user, self.ceo)
@@ -62,8 +60,11 @@ class Agency:
         Returns:
         Generator or final response: Depending on the 'yield_messages' flag, this method returns either a generator yielding intermediate messages or the final response from the entrance session.
         """
-        gen = self.entrance_session.get_completion(message=message, message_files=message_files, yield_messages=yield_messages)
-
+        gen = self.entrance_session.get_completion(message=message, 
+                                                   message_files=message_files, 
+                                                   topic="talk_to_user", 
+                                                   is_persist=True, 
+                                                   yield_messages=yield_messages)
         if not yield_messages:
             while True:
                 try:
@@ -350,9 +351,9 @@ class Agency:
                 return value
 
             def run(self, caller_thread):
-                session = caller_thread.sessions[self.recipient.value]
-                
-                if session is None:
+                if self.recipient.value in caller_thread.sessions.keys():
+                    session = caller_thread.sessions[self.recipient.value]
+                else:
                     session = Session(caller_agent=self.caller_agent, # TODO: check this parameter if error.
                                       recipient_agent=outer_self.get_agent_by_name(self.recipient.value),
                                       caller_thread=caller_thread)
@@ -364,14 +365,17 @@ class Agency:
                 #===================# python.thread.create()====================================
                 # TODO: 创建新的Python线程执行session
                 caller_thread.session_as_sender = session
-                
+                gen = session.get_completion(message=self.message, message_files=self.message_files)
                 try:
                     while True:
                         yield next(gen)
                 except StopIteration as e:
                     message = e.value
+                except Exception as e:
+                            print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
+                            raise e
                 #======================# python.thread.wait_to_join()=================================
-
+                
                 return message or ""
 
         # TODO: 每个Agent有自己的SendMessage对象。但是当前这个版本认为一个Agent在某一时刻只能有一个SendMessage函数被调用。
@@ -384,10 +388,8 @@ class Agency:
                                 topic: str=None,
                                 is_persist: bool=False,
                                 yield_messages=True):
-        ret = session.get_completion(message=message, message_files=message_files,topic=topic,is_persist=is_persist,yield_messages=yield_messages)
-        return ret
-
-
+        pass
+    
     def get_recipient_names(self):
         """
         Retrieves the names of all agents in the agency.
@@ -421,21 +423,21 @@ class Agency:
 
             agent.init_oai()
 
-    def _init_sessions(self):
-        """
-        Initializes sessions for communication between agents within the agency.
+    # def _init_sessions(self):
+    #     """
+    #     Initializes sessions for communication between agents within the agency.
 
-        This method creates Session objects for each pair of interacting agents as defined in the agents_and_sessions attribute of the Agency. Each session facilitates communication and task execution between an agent and its designated recipient agent.
+    #     This method creates Session objects for each pair of interacting agents as defined in the agents_and_sessions attribute of the Agency. Each session facilitates communication and task execution between an agent and its designated recipient agent.
 
-        No input parameters.
+    #     No input parameters.
 
-        Output Parameters:
-        This method does not return any value but updates the agents_and_sessions attribute with initialized Session objects.
-        """
-        for agent_name, sessions in self.agents_and_sessions.items():
-            for other_agent, items in sessions.items():
-                self.agents_and_sessions[agent_name][other_agent] = Session(self.get_agent_by_name(items["agent"]),
-                                                                            self.get_agent_by_name(items["recipient_agent"]))
+    #     Output Parameters:
+    #     This method does not return any value but updates the agents_and_sessions attribute with initialized Session objects.
+    #     """
+    #     for agent_name, sessions in self.agents_and_sessions.items():
+    #         for other_agent, items in sessions.items():
+    #             self.agents_and_sessions[agent_name][other_agent] = Session(self.get_agent_by_name(items["agent"]),
+    #                                                                         self.get_agent_by_name(items["recipient_agent"]))
 
     def get_class_folder_path(self):
         """

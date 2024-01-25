@@ -110,7 +110,7 @@ class Session:
             assistant_id=self. recipient_agent.id,
         )
         
-        while True:
+        while True: # Check state of Assistant AI running in the State-Machine
             # wait until run completes
             while run.status in ['queued', 'in_progress']:
                 time.sleep(5)
@@ -168,7 +168,7 @@ class Session:
                 message = messages.data[0].content[0].text.value
 
                 if yield_messages:
-                    yield MessageOutput("text", self.recipient_agent.name, self.caller_agent.name, message)
+                    yield MessageOutput("response_text", self.recipient_agent.name, self.caller_agent.name, message)
 
                 return message
 
