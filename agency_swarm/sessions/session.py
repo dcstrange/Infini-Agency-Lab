@@ -59,10 +59,11 @@ class Session:
         try:
             while True:
                 msg = next(gen)
-                msg.cprint()
+                #msg.cprint()
                 yield msg
         except StopIteration as e:
             response = e.value
+            
         except Exception as e: # 当会话超时，不能释放Thread对象
             print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
             raise e
@@ -141,7 +142,7 @@ class Session:
                                     yield item
                         except StopIteration as e:
                             output = e.value
-                            print(output)
+                            #print(output)
                         except Exception as e:
                             print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
                             raise e
