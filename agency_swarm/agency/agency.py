@@ -353,11 +353,13 @@ class Agency:
             def run(self, caller_thread):
                 if self.recipient.value in caller_thread.sessions.keys():
                     session = caller_thread.sessions[self.recipient.value]
+                    print(f"Retrived Session: caller_agent={session.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
+
                 else:
                     session = Session(caller_agent=self.caller_agent, # TODO: check this parameter if error.
                                       recipient_agent=outer_self.get_agent_by_name(self.recipient.value),
                                       caller_thread=caller_thread)
-                    print(f"New Session Created! caller_agent={self.caller_agent.name}, recipient_agent={outer_self.get_agent_by_name}")
+                    print(f"New Session Created! caller_agent={self.caller_agent.name}, recipient_agent={self.recipient.value}")
                     caller_thread.sessions[self.recipient.value] = session
 
                 if not isinstance(session, Session):

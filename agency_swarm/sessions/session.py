@@ -63,7 +63,7 @@ class Session:
                 yield msg
         except StopIteration as e:
             response = e.value
-            
+
         except Exception as e: # 当会话超时，不能释放Thread对象
             print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
             raise e
@@ -133,7 +133,7 @@ class Session:
                                             str(tool_call.function))
                     
                     # TODO:这里如果是SendMessage函数，后续会采用创建新Python线程来执行，需要修改处理逻辑。
-                    output = self._execute_tool(tool_call,recipient_thread)
+                    output = self._execute_tool(tool_call, caller_thread=recipient_thread)
                     if inspect.isgenerator(output):
                         try:
                             while True:
