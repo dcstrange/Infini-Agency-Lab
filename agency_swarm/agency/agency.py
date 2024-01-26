@@ -354,8 +354,8 @@ class Agency:
                 if self.recipient.value in caller_thread.sessions.keys():
                     session = caller_thread.sessions[self.recipient.value]
                     print(f"Retrived Session: caller_agent={session.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
-                    print(f"Retrived Session: caller_agent={self.caller_agent_name}, recipient_agent={session.recipient_agent.name}")
-                    print(f"Retrived Session: caller_agent={self.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
+                    # print(f"Retrived Session: caller_agent={self.caller_agent_name}, recipient_agent={session.recipient_agent.name}")
+                    # print(f"Retrived Session: caller_agent={self.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
                 else:
                     session = Session(caller_agent=self.caller_agent, # TODO: check this parameter if error.
                                       recipient_agent=outer_self.get_agent_by_name(self.recipient.value),

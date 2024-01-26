@@ -129,6 +129,7 @@ class Session:
             if run.status == "requires_action":
                 tool_calls = run.required_action.submit_tool_outputs.tool_calls
                 tool_outputs = []
+                tool_outputs_for_resubmit = []
                 for tool_call in tool_calls:
                     if yield_messages:
                         yield MessageOutput("function", self.recipient_agent.name, self.caller_agent.name,
@@ -154,7 +155,7 @@ class Session:
                                                 output)
 
                     tool_outputs.append({"tool_call_id": tool_call.id, "output": str(output)})
-
+                    tool_outputs_for_resubmit.append({"tools_calls": tool_call.model_dump_json(), "output":str(output)})
                 # submit tool outputs
                 try:
                     run = self.client.beta.threads.runs.submit_tool_outputs(
@@ -163,17 +164,40 @@ class Session:
                         tool_outputs=tool_outputs
                     )
                 except Exception as e:
-                    # TODO: 需要考虑提交tool结果是否会失败。例如因为tool执行时间过长，run被自动关闭。这时候需要重新执行run并快速提交上次结果。
+                    # TODO: 需要考虑提交tool结果是否会失败。例如因为tool执行时间过长，run被自动关闭。这时候需要重新执行run并提交上次结果。
+                    # 由于调用自定义Funtion超时，导致RUN进入expired状态后无法提交Funtion执行结果。但由于目前AssistantAPI不支持编辑RUN’step，这就无法做到断点续传。因此一个妥协的办法是将函数的执行结果包装成提示词消息追加到Thread中，然后再re-RUN。
+
+                    print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
+                    print(f"Resubmit the expired tool's output with RUN's information. See: run_id: {run.id}, thread_id: {recipient_thread.thread_id} ...")
+                    # Step 1. 获取失败的RUN'step
+                    # run_steps = self.client.beta.threads.runs.steps.list(
+                    #     thread_id=recipient_thread.thread_id,
+                    #     run_id=run.id,
+                    #     limit=1,
+                    #     order="desc"
+                    # )
+                    # fail_step = run_steps._get_page_items()[0]
+                    
+                    # Step 2. 将失败step的信息和tool的返回值打包成新的提示词
+                    output = self._wapper_expired_tool_output(str(tool_outputs_for_resubmit))
+                    print(output)
+                    # Step 3. 新的提示词追加到Thread中，并重新执行
                     self.client.beta.threads.messages.create(
                         thread_id=recipient_thread.thread_id,
-                        role="assistant",
-                        content=message,
+                        role="user",
+                        content=output,
                         file_ids=message_files if message_files else [],
+                    )
+                    run = self.client.beta.threads.runs.create(
+                        thread_id=recipient_thread.thread_id,
+                        assistant_id=self.recipient_agent.id,
                     )
 
             # error
             elif run.status == "failed":
                 raise Exception("Run Failed. Error: ", run.last_error)
+            elif run.status == "expired":
+                raise Exception("Run expired. Error: ", run.last_error)
             # return assistant message
             else:
                 messages = self.client.beta.threads.messages.list(
@@ -219,6 +243,18 @@ class Session:
             if "For further information visit" in error_message:
                 error_message = error_message.split("For further information visit")[0]
             return error_message
+
+    def _wapper_expired_tool_output(self, output:str) -> str:
+        """
+        - 处理issues：由于调用自定义Funtion超时，导致RUN进入expired状态后无法提交Funtion执行结果。
+        - 但由于目前AssistantAPI不支持编辑RUN’step，这就无法做到断点续传。因此一个妥协的办法是将函数的执行结果包装成提示词消息追加到Thread中，然后再re-RUN。
+        """
+        wapper = f""" We have executed the following steps:
+        ---
+        {output}
+        ---
+        """
+        return wapper
 
 # Example usage within this file
 if __name__ == "__main__":
