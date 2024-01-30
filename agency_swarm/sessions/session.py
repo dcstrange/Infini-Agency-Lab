@@ -10,13 +10,12 @@ from agency_swarm.agents import Agent
 from agency_swarm.messages import MessageOutput
 from agency_swarm.user import User
 from agency_swarm.util.oai import get_openai_client
+import json
 
 class Session:
     """
     对于一个<sender, recipient> agent pair来说，1个sender.thread只能属于一个Session。可以有多个sender.thread属于不同的session
     """
-    
-    topic = None
     
     def __init__(self, caller_agent: Literal[Agent, User], recipient_agent: Agent, caller_thread:Thread=None):
         self.caller_agent = caller_agent
@@ -26,31 +25,22 @@ class Session:
         if isinstance(self.caller_agent, Agent) and self.caller_thread is None:
             raise Exception("Error: initialize Session with Agent as caller must specifiy the parameter caller_thread.")
         self.cached_recipient_threads = []
+        self.description = {}
             
     def get_completion(self, 
                        message:str, 
                        message_files=None, 
-                       topic: str=None,
-                       is_persist: bool=False,
+                       is_persist: bool=True,
                        yield_messages=True):
 
-        recipient_thread = None
-        if topic: #需要与已有主题的thread对话
-            recipient_thread = self._retrieve_topic_thread_from_recipient(topic) # # try to lock the recipient_thread
-            if recipient_thread is None or recipient_thread.status is ThreadStatus.Running:
-                recipient_thread = Thread(copy_from=recipient_thread)
-                print(f'New THREAD:')
-                #print(f"recipient_thread.sessions.keys={recipient_thread.sessions.keys()}")
-                recipient_thread.topic = topic
-        else:
-            # 如果不需要与已有主题的thread对话
-            recipient_thread = Thread()
+        recipient_thread = self._retrieve_thread_of_topic(message) # try to lock the recipient_thread
+        if not recipient_thread or recipient_thread.status is not ThreadStatus.Ready:
+            recipient_thread = Thread(copy_from=recipient_thread)
             print(f'New THREAD:')
-            #print(f"recipient_thread.sessions.keys={recipient_thread.sessions.keys()}")
 
         recipient_thread.status = ThreadStatus.Running
         recipient_thread.session_as_recipient = self
-        recipient_thread.properties = ThreadProperty.Persist if is_persist else recipient_thread.properties
+        recipient_thread.properties = ThreadProperty.OneOff if not is_persist else recipient_thread.properties
         if isinstance(self.caller_agent, User):
             recipient_thread.in_message_chain = self.caller_agent.uuid
         else:
@@ -65,7 +55,6 @@ class Session:
                 yield msg
         except StopIteration as e:
             response = e.value
-
         except Exception as e: # 当会话超时，不能释放Thread对象
             print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
             raise e
@@ -75,12 +64,15 @@ class Session:
         if recipient_thread.properties is ThreadProperty.OneOff:
             recipient_thread = None # 直接释放recipient thread
             return response
-        elif recipient_thread.properties is ThreadProperty.Persist:
+        else: 
             # 保存recipient thread
-            if recipient_thread not in self.cached_recipient_threads:
-                self.cached_recipient_threads.append(recipient_thread)
+            # if recipient_thread not in self.cached_recipient_threads:
+            #     self.cached_recipient_threads.append(recipient_thread)
+            new_history = f"# Message 1:\n {message}\n\n # Message 2:\n{response}\n"
+            self._update_task_description(recipient_thread, new_history)
             self.recipient_agent.add_thread(recipient_thread) 
-        elif recipient_thread.properties is ThreadProperty.CoW:
+        
+        if recipient_thread.properties is ThreadProperty.CoW:
             # TODO: merge to original thread.
             pass
 
@@ -164,7 +156,7 @@ class Session:
                         tool_outputs=tool_outputs
                     )
                 except Exception as e:
-                    # TODO: 需要考虑提交tool结果是否会失败。例如因为tool执行时间过长，run被自动关闭。这时候需要重新执行run并提交上次结果。
+                    # ☑️[DONE]: 需要考虑提交tool结果是否会失败。例如因为tool执行时间过长，run被自动关闭。这时候需要重新执行run并提交上次结果。
                     # 由于调用自定义Funtion超时，导致RUN进入expired状态后无法提交Funtion执行结果。但由于目前AssistantAPI不支持编辑RUN’step，这就无法做到断点续传。因此一个妥协的办法是将函数的执行结果包装成提示词消息追加到Thread中，然后再re-RUN。
 
                     print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
@@ -210,18 +202,89 @@ class Session:
 
                 return message
 
-    def _retrieve_topic_thread_from_recipient(self, topic:str) -> Thread:
-        for t in self.cached_recipient_threads:
-            if self._is_topic_related(t, topic):
-                    return t
-        for t in self.recipient_agent.threads:
-            if self._is_topic_related(t, topic):
-                    return t
-        return None
-                
+    def _retrieve_thread_of_topic(self, message:str) -> Thread:
+        classifier_instruction = """
+        You are the expert responsible for understanding session scenarios. A session consists of several characters discussing a task, the process of performing it, and the intermediate results. You will receive a list of generalized descriptions of multiple sessions, each of which includes information such as: task context, content, goals, current status, existing results, unknown results. Finally, You will receive a new statement from one of the characters. Your task is to choose the session from the list of session descriptions that is most appropriate for that new statement to join, and give reasons why.
+        Output the results in the following json format.
+        {
+            "session_id": ...,
+            "reason": "..."
+        }
+        In this json,  give the session id (integer) and reason (string) that the new statement should join. If you think that the new statement cannot join to any existing session, "session_id" will be set to -1. 
+        Must not include any characters other than json in the output.
+        """    
 
-    def _is_topic_related(self, recipient_thread: Thread, topic: str) -> bool:
-        return recipient_thread.topic ==  topic
+        sessions_decription = ""
+        for index, thread in enumerate(self.recipient_agent.threads, start=1):
+            sessions_decription += f"### Description of Session {index}:\n{thread.task_description}\n\n"
+            
+        if not sessions_decription:
+            return None
+        
+        # sessions_decription += f"### new statement\n{self.recipient_agent.name}:{message}"
+        
+        response = self.client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": classifier_instruction},
+                {"role": "user", "content": sessions_decription},
+                {"role": "user", "content": f"### new statement\n{self.recipient_agent.name}:{message}"},
+            ]
+        )
+        
+        # check if json
+        response = response['choices'][0]['message']['content']
+        thread_json = json.loads(response)
+        session_id = thread_json["session_id"]
+        if session_id <= 0:
+            return None
+        else:
+            return self.recipient_agent.threads[session_id - 1]
+                
+    def _update_task_description(self, thread:Thread, new_history:str):
+        # Generate the description of this session at this state. 
+        # instruction大意：requires clarity and conciseness.
+        # 如果description为空，则根据json中每个字段的描述生成decription。如果非空，则根据新历史来更新description。
+        # 更新方法如下：
+        # 只需要修改"existing results"和"unknown results"。 
+        # 分析最近产生的会话消息中是否存在"existing results"字段中未收录的最新的结果，如果有，则加入填入字段。同时，删除"unknown results"字段中对应的元素（如果有）。
+        # 分析最近产生的会话消息中是否存在"unknown results"字段中未收录的待获取的结果，如果有，则填土该字段。   
+        
+        instruction = """You are an expert on understanding and analyzing complex task session and you are responsible for generating a description of the task based on its session history. The description of the task session must be output in the following json format, which gives the fields required to be output and the detailed requirements for each field.
+        
+        {
+            "backgroud": "Extract the context of the task from the first message of session history and briefly summarize it in one sentence", 
+            "task_content": "Define clear and specific criteria based solely on the first message that indicate the task content is complete, focusing on the direct deliverables or outcomes requested.", 
+            "completion conditions": "Define clear and specific criteria based solely on the first message that indicate the task content is complete, focusing on the direct deliverables or outcomes requested.", 
+            "existing results": "Extract and *qualitatively summarize the (intermediate) results that have been produced by this task from the session history, and output them as a bulleted list.", 
+            "unknown results": "Based on the principle of the 'completion conditions' field, the (intermediate) results required by the task but not yet obtained are extracted from the session history and output as a bulleted list",
+            "status": "Analyze from the session history and the results what is the task status according to the completion condition, e.g., completed, uncompleted, unable to complete, uncertained etc."
+        }
+        
+        You will receive a task's recent session history and an existing description of the task's session, labeled with ####, respectively. Follow the steps below to output a new session description:
+        1. if description is empty, generate a description that strictly adheres to the requirements of each field in the json.
+        2. otherwise, update the "existing results" and "unknown results" fields in the description according to the new session history. The update method is:
+            - Analyze the most recent generated session messages for the presence of the latest (intermediate) results that are not included in the "existing results" field, and if so, populate the field. At the same time, delete the corresponding element (if any) in the "unknown results" field.
+            - Analyze the most recently generated session messages for any pending results that are not included in the "unknown results" field, and if so, populate the field.
+
+        Note that your description is required to be clear and unambiguous, and your final output cannot contain any characters other than the description in json format.
+        """
+        
+        message = f"### Description of Task Session:\n{thread}"
+        message += f"\n ### Recent Task Session History:\n{new_history}"
+
+        
+        response = self.client.chat.completions.create(
+            model="gpt-4-1106-preview",
+            messages=[
+                {"role": "system", "content": instruction},
+                {"role": "user", "content": message},
+            ]
+        )
+        task_description = response['choices'][0]['message']['content']
+        print(task_description)
+        thread.task_description = task_description
+        return task_description
 
     def _execute_tool(self, tool_call, caller_thread:Thread):
         funcs = self.recipient_agent.functions
@@ -249,7 +312,7 @@ class Session:
         - 处理issues：由于调用自定义Funtion超时，导致RUN进入expired状态后无法提交Funtion执行结果。
         - 但由于目前AssistantAPI不支持编辑RUN’step，这就无法做到断点续传。因此一个妥协的办法是将函数的执行结果包装成提示词消息追加到Thread中，然后再re-RUN。
         """
-        wapper = f""" We have executed the following steps:
+        wapper = f""" We have executed the v steps:
         ---
         {output}
         ---

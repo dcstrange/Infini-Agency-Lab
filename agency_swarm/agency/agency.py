@@ -62,7 +62,6 @@ class Agency:
         """
         gen = self.entrance_session.get_completion(message=message, 
                                                    message_files=message_files, 
-                                                   topic="talk_to_user", 
                                                    is_persist=True, 
                                                    yield_messages=yield_messages)
         if not yield_messages:

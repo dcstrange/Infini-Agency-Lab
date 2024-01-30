@@ -18,15 +18,13 @@ class Thread:
         self.thread_id: str = thread_id
         self.openai_thread = None
         self.instruction: str = None
-        self.topic: str = None
-        self.summary: str = None
         self.in_message_chain: str = None
         self.status: ThreadStatus = ThreadStatus.Ready
-        self.properties: ThreadProperty = ThreadProperty.OneOff
+        self.properties: ThreadProperty = ThreadProperty.Persist
         self.sessions = {} # {"recipient agent name", session}
         self.session_as_sender = None    # 用于python线程异常挂掉后的处理
         self.session_as_recipient= None # 用于python线程异常挂掉后的处理
-        self.instruction: str = None
+        self.task_description = ""
         
         if self.thread_id:
             self.openai_thread = self.client.beta.threads.retrieve(self.thread_id)
