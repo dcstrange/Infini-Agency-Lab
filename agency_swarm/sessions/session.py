@@ -26,6 +26,7 @@ class Session:
             raise Exception("Error: initialize Session with Agent as caller must specifiy the parameter caller_thread.")
         self.cached_recipient_threads = []
         self.description = {}
+        self.allowed_fails = 5
             
     def get_completion(self, 
                        message:str, 
@@ -82,7 +83,6 @@ class Session:
         # Unlock the recipient_thread
         return response
 
-
     def _get_completion_from_thread(self, recipient_thread: Thread, message: str, message_files=None, yield_messages=True):
 
         # Determine the sender's name based on the agent type
@@ -90,22 +90,10 @@ class Session:
         playground_url = f'https://platform.openai.com/playground?assistant={self.recipient_agent._assistant.id}&mode=assistant&thread={recipient_thread.thread_id}'
         print(f'THREAD:[ {sender_name} -> {self.recipient_agent.name} ]: URL {playground_url}')
 
-        # send message
-        self.client.beta.threads.messages.create(
-            thread_id=recipient_thread.thread_id,
-            role="user",
-            content=message,
-            file_ids=message_files if message_files else [],
-        )
-
         if yield_messages:
             yield MessageOutput("text", self.caller_agent.name, self.recipient_agent.name, message)
-
-        # create run
-        run = self.client.beta.threads.runs.create(
-            thread_id=recipient_thread.thread_id,
-            assistant_id=self.recipient_agent.id,
-        )
+            
+        run = self._run_message(recipient_thread, message, self.recipient_agent, message_files)
         
         while True: # Check state of Assistant AI running in the State-Machine
             # wait until run completes
@@ -171,25 +159,31 @@ class Session:
                     # fail_step = run_steps._get_page_items()[0]
                     
                     # Step 2. 将失败step的信息和tool的返回值打包成新的提示词
-                    output = self._wapper_expired_tool_output(str(tool_outputs_for_resubmit))
-                    print(output)
+                    wapper_output = self._wapper_expired_tool_output(str(tool_outputs_for_resubmit))
+                    print(wapper_output)
+                    
                     # Step 3. 新的提示词追加到Thread中，并重新执行
-                    self.client.beta.threads.messages.create(
-                        thread_id=recipient_thread.thread_id,
-                        role="user",
-                        content=output,
-                        file_ids=message_files if message_files else [],
-                    )
-                    run = self.client.beta.threads.runs.create(
-                        thread_id=recipient_thread.thread_id,
-                        assistant_id=self.recipient_agent.id,
-                    )
-
+                    run = self._run_message(recipient_thread, wapper_output, self.recipient_agent, message_files)
+                    
             # error
             elif run.status == "failed":
-                raise Exception("Run Failed. Error: ", run.last_error)
+                print("Run Failed. Error: ", run.last_error)
+                if self.allowed_fails > 0:
+                    time.sleep(5)
+                    print(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{self.recipient_agent.id}] ... ")
+                    run = self._run(recipient_thread, self.recipient_agent) # try again.
+                    self.allowed_fails -= 1
+                else:
+                    raise Exception("Run Failed. Error: ", run.last_error)
             elif run.status == "expired":
-                raise Exception("Run expired. Error: ", run.last_error)
+                print("Run expired. Error: ", run.last_error)
+                if self.allowed_fails > 0:
+                    time.sleep(5)
+                    print(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{self.recipient_agent.id}] ... ")
+                    run = self._run(recipient_thread, self.recipient_agent) # try again.
+                    self.allowed_fails -= 1
+                else:
+                    raise Exception("Run Failed. Error: ", run.last_error)
             # return assistant message
             else:
                 messages = self.client.beta.threads.messages.list(
@@ -202,6 +196,28 @@ class Session:
 
                 return message
 
+    def _run_message(self, thread:Thread, message:str, agent:Agent, message_files=None):
+        # create message
+        self.client.beta.threads.messages.create(
+            thread_id=thread.thread_id,
+            role="user",
+            content=message,
+            file_ids=message_files if message_files else [],
+        )
+        # create run
+        run = self.client.beta.threads.runs.create(
+            thread_id=thread.thread_id,
+            assistant_id=agent.id,
+        )
+        return run
+    
+    def _run(self, thread:Thread, agent:Agent):
+        run = self.client.beta.threads.runs.create(
+            thread_id=thread.thread_id,
+            assistant_id=agent.id,
+        )
+        return run
+    
     def _retrieve_thread_of_topic(self, message:str) -> Thread:
         classifier_instruction = """
         You are the expert responsible for understanding session scenarios. A session consists of several characters discussing a task, the process of performing it, and the intermediate results. You will receive a list of generalized descriptions of multiple sessions, each of which includes information such as: task context, content, goals, current status, existing results, unknown results. Finally, You will receive a new statement from one of the characters. Your task is to choose the session from the list of session descriptions that is most appropriate for that new statement to join, and give reasons why.
@@ -223,8 +239,8 @@ class Session:
         
         # sessions_decription += f"### new statement\n{self.recipient_agent.name}:{message}"
         
-        response = self.client.chat.completions.create(
-            model="gpt-3.5-turbo",
+        completion = self.client.chat.completions.create(
+            model="gpt-3.5-turbo-16k",
             messages=[
                 {"role": "system", "content": classifier_instruction},
                 {"role": "user", "content": sessions_decription},
@@ -233,7 +249,8 @@ class Session:
         )
         
         # check if json
-        response = response['choices'][0]['message']['content']
+        response = completion.choices[0].message.content
+        print(response)
         thread_json = json.loads(response)
         session_id = thread_json["session_id"]
         if session_id <= 0:
@@ -270,18 +287,18 @@ class Session:
         Note that your description is required to be clear and unambiguous, and your final output cannot contain any characters other than the description in json format.
         """
         
-        message = f"### Description of Task Session:\n{thread}"
+        message = f"### Description of Task Session:\n{thread.task_description}"
         message += f"\n ### Recent Task Session History:\n{new_history}"
 
         
-        response = self.client.chat.completions.create(
+        completion = self.client.chat.completions.create(
             model="gpt-4-1106-preview",
             messages=[
                 {"role": "system", "content": instruction},
                 {"role": "user", "content": message},
             ]
         )
-        task_description = response['choices'][0]['message']['content']
+        task_description = completion.choices[0].message.content
         print(task_description)
         thread.task_description = task_description
         return task_description
@@ -312,10 +329,11 @@ class Session:
         - 处理issues：由于调用自定义Funtion超时，导致RUN进入expired状态后无法提交Funtion执行结果。
         - 但由于目前AssistantAPI不支持编辑RUN’step，这就无法做到断点续传。因此一个妥协的办法是将函数的执行结果包装成提示词消息追加到Thread中，然后再re-RUN。
         """
-        wapper = f""" We have executed the v steps:
+        wapper = f""" We have executed the following steps:
         ---
         {output}
         ---
+        keep going on.
         """
         return wapper
 
