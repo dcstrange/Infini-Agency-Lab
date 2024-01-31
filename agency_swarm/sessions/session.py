@@ -228,7 +228,7 @@ class Session:
             "session_id": ...,
             "reason": "..."
         }
-        In this json,  give the session id (integer) and reason (string) that the new statement should join. If you think that the new statement cannot join to any existing session, "session_id" will be set to -1. 
+        In this json, give the session id (integer) and reason (string) why the new statement should be joined and the reason for not joining another session. If you think that the new statement cannot join to any existing session, "session_id" will be set to -1. 
         Must not include any characters other than json in the output.
         """    
 
@@ -249,10 +249,17 @@ class Session:
                 {"role": "user", "content": f"### new statement\n{self.recipient_agent.name}:{message}"},
             ]
         )
-        
-        # check if json
         response = completion.choices[0].message.content
-        logger.info(response)
+        
+        # Logging
+        if isinstance(self.caller_agent, User):
+            caller_name = "User"
+        else:
+            caller_name = self.caller_agent.name
+        log_header = f"retrieve one from {len(self.recipient_agent.threads)} sessions that {caller_name} → {self.recipient_agent.name}...\n"
+        logger.info(log_header + response)
+        
+        #
         thread_json = json.loads(response)
         session_id = thread_json["session_id"]
         if session_id <= 0:
@@ -301,7 +308,13 @@ class Session:
             ]
         )
         task_description = completion.choices[0].message.content
-        logger.info(task_description)
+        
+        if isinstance(self.caller_agent, User):
+            log_header = f"Updated the task description of the session that User → {self.recipient_agent.name}:[{thread.thread_id}]...\n"
+        else:
+            log_header = f"Updated the task description of the session that {self.caller_agent.name}:[{self.caller_thread.thread_id}] → {self.recipient_agent.name}:[{thread.thread_id}]...\n"
+
+        logger.info(log_header + task_description)
         thread.task_description = task_description
         return task_description
 
