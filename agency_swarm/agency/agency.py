@@ -11,6 +11,8 @@ from agency_swarm.agents import Agent
 from agency_swarm.sessions import Session
 from agency_swarm.tools import BaseTool
 from agency_swarm.user import User
+from agency_swarm.util.log_config import setup_logging 
+logger = setup_logging()
 
 console = Console()
 
@@ -107,7 +109,8 @@ class Agency:
                             continue
 
                         message = bot_message.get_sender_emoji() + " " + bot_message.get_formatted_content()
-
+                        logger.info(message)
+                        
                         history.append((None, message))
                         yield history
                 except StopIteration:
@@ -352,14 +355,14 @@ class Agency:
             def run(self, caller_thread):
                 if self.recipient.value in caller_thread.sessions.keys():
                     session = caller_thread.sessions[self.recipient.value]
-                    print(f"Retrived Session: caller_agent={session.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
-                    # print(f"Retrived Session: caller_agent={self.caller_agent_name}, recipient_agent={session.recipient_agent.name}")
-                    # print(f"Retrived Session: caller_agent={self.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
+                    logger.info(f"Retrived Session: caller_agent={session.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
+                    # logger.info(f"Retrived Session: caller_agent={self.caller_agent_name}, recipient_agent={session.recipient_agent.name}")
+                    # logger.info(f"Retrived Session: caller_agent={self.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
                 else:
                     session = Session(caller_agent=self.caller_agent, # TODO: check this parameter if error.
                                       recipient_agent=outer_self.get_agent_by_name(self.recipient.value),
                                       caller_thread=caller_thread)
-                    print(f"New Session Created! caller_agent={self.caller_agent.name}, recipient_agent={self.recipient.value}")
+                    logger.info(f"New Session Created! caller_agent={self.caller_agent.name}, recipient_agent={self.recipient.value}")
                     caller_thread.sessions[self.recipient.value] = session
 
                 if not isinstance(session, Session):
@@ -375,7 +378,7 @@ class Agency:
                 except StopIteration as e:
                     message = e.value
                 except Exception as e:
-                            print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
+                            logger.info(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
                             raise e
                 #======================# python.thread.wait_to_join()=================================
                 

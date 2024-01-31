@@ -1,6 +1,7 @@
 import inspect
 import time
 from typing import Literal
+import json
 
 from agency_swarm.threads import Thread
 from agency_swarm.threads import ThreadStatus
@@ -10,7 +11,8 @@ from agency_swarm.agents import Agent
 from agency_swarm.messages import MessageOutput
 from agency_swarm.user import User
 from agency_swarm.util.oai import get_openai_client
-import json
+from agency_swarm.util.log_config import setup_logging 
+logger = setup_logging()
 
 class Session:
     """
@@ -37,7 +39,7 @@ class Session:
         recipient_thread = self._retrieve_thread_of_topic(message) # try to lock the recipient_thread
         if not recipient_thread or recipient_thread.status is not ThreadStatus.Ready:
             recipient_thread = Thread(copy_from=recipient_thread)
-            print(f'New THREAD:')
+            logger.info(f'New THREAD:')
 
         recipient_thread.status = ThreadStatus.Running
         recipient_thread.session_as_recipient = self
@@ -57,7 +59,7 @@ class Session:
         except StopIteration as e:
             response = e.value
         except Exception as e: # 当会话超时，不能释放Thread对象
-            print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
+            logger.info(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
             raise e
             # # TODO:check是否recipient thread有更新消息
         
@@ -88,7 +90,7 @@ class Session:
         # Determine the sender's name based on the agent type
         sender_name = "user" if isinstance(self.caller_agent, User) else self.caller_agent.name
         playground_url = f'https://platform.openai.com/playground?assistant={self.recipient_agent._assistant.id}&mode=assistant&thread={recipient_thread.thread_id}'
-        print(f'THREAD:[ {sender_name} -> {self.recipient_agent.name} ]: URL {playground_url}')
+        logger.info(f'THREAD:[ {sender_name} -> {self.recipient_agent.name} ]: URL {playground_url}')
 
         if yield_messages:
             yield MessageOutput("text", self.caller_agent.name, self.recipient_agent.name, message)
@@ -103,7 +105,7 @@ class Session:
                     thread_id=recipient_thread.thread_id,
                     run_id=run.id
                 )
-                print(f"Run [{run.id}] Status: {run.status}")
+                logger.info(f"Run [{run.id}] Status: {run.status}")
 
             # function execution
             if run.status == "requires_action":
@@ -125,9 +127,9 @@ class Session:
                                     yield item
                         except StopIteration as e:
                             output = e.value
-                            #print(output)
+                            #logger.info(output)
                         except Exception as e:
-                            print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
+                            logger.info(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
                             raise e
                     else:
                         if yield_messages:
@@ -147,8 +149,8 @@ class Session:
                     # ☑️[DONE]: 需要考虑提交tool结果是否会失败。例如因为tool执行时间过长，run被自动关闭。这时候需要重新执行run并提交上次结果。
                     # 由于调用自定义Funtion超时，导致RUN进入expired状态后无法提交Funtion执行结果。但由于目前AssistantAPI不支持编辑RUN’step，这就无法做到断点续传。因此一个妥协的办法是将函数的执行结果包装成提示词消息追加到Thread中，然后再re-RUN。
 
-                    print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
-                    print(f"Resubmit the expired tool's output with RUN's information. See: run_id: {run.id}, thread_id: {recipient_thread.thread_id} ...")
+                    logger.info(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
+                    logger.info(f"Resubmit the expired tool's output with RUN's information. See: run_id: {run.id}, thread_id: {recipient_thread.thread_id} ...")
                     # Step 1. 获取失败的RUN'step
                     # run_steps = self.client.beta.threads.runs.steps.list(
                     #     thread_id=recipient_thread.thread_id,
@@ -160,26 +162,26 @@ class Session:
                     
                     # Step 2. 将失败step的信息和tool的返回值打包成新的提示词
                     wapper_output = self._wapper_expired_tool_output(str(tool_outputs_for_resubmit))
-                    print(wapper_output)
+                    logger.info(wapper_output)
                     
                     # Step 3. 新的提示词追加到Thread中，并重新执行
                     run = self._run_message(recipient_thread, wapper_output, self.recipient_agent, message_files)
                     
             # error
             elif run.status == "failed":
-                print("Run Failed. Error: ", run.last_error)
+                logger.info("Run Failed. Error: ", run.last_error)
                 if self.allowed_fails > 0:
                     time.sleep(5)
-                    print(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{self.recipient_agent.id}] ... ")
+                    logger.info(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{self.recipient_agent.id}] ... ")
                     run = self._run(recipient_thread, self.recipient_agent) # try again.
                     self.allowed_fails -= 1
                 else:
                     raise Exception("Run Failed. Error: ", run.last_error)
             elif run.status == "expired":
-                print("Run expired. Error: ", run.last_error)
+                logger.info("Run expired. Error: ", run.last_error)
                 if self.allowed_fails > 0:
                     time.sleep(5)
-                    print(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{self.recipient_agent.id}] ... ")
+                    logger.info(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{self.recipient_agent.id}] ... ")
                     run = self._run(recipient_thread, self.recipient_agent) # try again.
                     self.allowed_fails -= 1
                 else:
@@ -250,7 +252,7 @@ class Session:
         
         # check if json
         response = completion.choices[0].message.content
-        print(response)
+        logger.info(response)
         thread_json = json.loads(response)
         session_id = thread_json["session_id"]
         if session_id <= 0:
@@ -299,7 +301,7 @@ class Session:
             ]
         )
         task_description = completion.choices[0].message.content
-        print(task_description)
+        logger.info(task_description)
         thread.task_description = task_description
         return task_description
 
