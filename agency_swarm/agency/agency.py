@@ -106,6 +106,7 @@ class Agency:
                     # Yield each message from the generator
                     for bot_message in gen:
                         if bot_message.sender_name.lower() == "user":
+                            logger.info(bot_message.get_sender_emoji() + " " + bot_message.get_formatted_content())
                             continue
 
                         message = bot_message.get_sender_emoji() + " " + bot_message.get_formatted_content()

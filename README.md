@@ -213,3 +213,69 @@ Agency Swarm is open-source and licensed under [MIT](https://opensource.org/lice
 ## Need Help?
 
 If you require assistance in creating custom agent swarms or have any specific queries related to Agency Swarm, feel free to reach out through my website: [vrsen.ai](https://vrsen.ai)
+
+
+# About this variant
+## Refactored AgencySwarm to include new features.
+
+- Focused on refactoring the Thread data model. Introduced the concept of session, solved the message deadlock problem, and reserved an interface to archive historical session messages.
+- Organize historical sessions according to task descriptions.
+    - AS determines which recipient's thread should be added to continue the session with new messages from upstream.
+    - At the end of each session (one question and one answer), the task description of the session is updated with the following details. the AS determines the session to which new messages should be added based on the task description.
+    ```
+    {
+          "backgroud": "Extract the context of the task from the first message of session history and briefly summarize it in one sentence", 
+          "task_content": "Define clear and specific criteria based solely on the first message that indicate the task content is complete, focusing on the direct deliverables or outcomes requested.", 
+          "completion conditions": "Define clear and specific criteria based solely on the first message that indicate the task content is complete, focusing on the direct deliverables or outcomes requested.", 
+          "existing results": "Extract and *qualitatively summarize the (intermediate) results that have been produced by this task from the session history, and output them as a bulleted list.", 
+          "unknown results": "Based on the principle of the 'completion conditions' field, the (intermediate) results required by the task but not yet obtained are extracted from the session history and output as a bulleted list",
+          "status": "Analyze from the session history and the results what is the task status according to the completion condition, e.g., completed, uncompleted, unable to complete, uncertained etc."
+    }
+    ```
+    
+- Thread CoW mechanism interface (not implemented)
+
+## Summary of highlights of the current release (AgencySwarm's transformation gains)
+
+- No loss of task specificity and goals observed during long task progress (> 2 hours).
+- Better performance for "task" type sessions, thanks to categorizing sessions by content and updating the description of the task at the end of each session to keep it specific.
+- The problem of assistant's expiring when a custom function times out is now well mitigated by adding the context of the failure as a new message and re-running the thread, with no side effects observed.
+- The session form of the code expression, easy to later change to a multi-threaded version, that is, each session has a separate thread management
+
+## Handling issues
+
+- Due to the timeout of the call to the custom Funtion, the submission of the result of the Funtion execution fails, causing the RUN to enter the expired state.
+    - However, since the current AssistantAPI does not support editing the RUN'step, this does not make it possible to do a breakout. So a compromise is to wrap the result of the function's execution as a cue word message appended to the Thread and then re-RUN.
+
+# 中文说明 (Chinese version)
+## 重构AgencySwarm，加入新特性
+
+- 重点重构了 Thread 数据模型。引入了Session的概念，解决了消息死锁问题，预留出了将历史会话消息归档的接口。
+- 将历史的Session按照任务描述分类组织
+    - AS会判断上游的新消息应该加入哪个recipient‘s thread来继续会话。
+    - 在每次会话结束（一问一答）后，会更新该会话的任务描述（task description)，该描述具体内容如下。AS判断新消息加入的会话也是根据任务描述来选择的。
+    
+    ```
+    {
+          "backgroud": "Extract the context of the task from the first message of session history and briefly summarize it in one sentence", 
+          "task_content": "Define clear and specific criteria based solely on the first message that indicate the task content is complete, focusing on the direct deliverables or outcomes requested.", 
+          "completion conditions": "Define clear and specific criteria based solely on the first message that indicate the task content is complete, focusing on the direct deliverables or outcomes requested.", 
+          "existing results": "Extract and *qualitatively summarize the (intermediate) results that have been produced by this task from the session history, and output them as a bulleted list.", 
+          "unknown results": "Based on the principle of the 'completion conditions' field, the (intermediate) results required by the task but not yet obtained are extracted from the session history and output as a bulleted list",
+          "status": "Analyze from the session history and the results what is the task status according to the completion condition, e.g., completed, uncompleted, unable to complete, uncertained etc."
+    }
+    ```
+    
+- Thread CoW机制接口（未实现）
+
+## 当前版本亮点汇总（AgencySwarm的改造收益）
+
+- 在长时间任务推进中，观测到任务的具体性和目标并没有减弱（> 2 hours）
+- 针对”任务（task）“类型的会话有较好的表现，这得益于按内容内容分类会话，以及每次会话结束后对任务更新描述，保持任务的具体性。
+- 当自定义函数超时后导致assistant’s expired问题目前有很好的缓解，将失败时候的上下文以新消息的形式加入并重新运行thread，观察到并没有副作用。
+- Session形式的代码表达，便于后面改成多线程版本，即每个session有单独线程管理
+
+## 处理issues
+
+- 由于调用自定义Funtion超时后，Funtion执行结果提交失败，导致RUN进入expired状态。
+    - 但由于目前AssistantAPI不支持编辑RUN’step，这就无法做到断点续传。因此一个妥协的办法是将函数的执行结果包装成提示词消息追加到Thread中，然后re-RUN。
