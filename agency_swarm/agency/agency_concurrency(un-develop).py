@@ -11,8 +11,6 @@ from agency_swarm.agents import Agent
 from agency_swarm.sessions import Session
 from agency_swarm.tools import BaseTool
 from agency_swarm.user import User
-from agency_swarm.util.log_config import setup_logging 
-logger = setup_logging()
 
 console = Console()
 
@@ -64,6 +62,7 @@ class Agency:
         """
         gen = self.entrance_session.get_completion(message=message, 
                                                    message_files=message_files, 
+                                                   topic="talk_to_user", 
                                                    is_persist=True, 
                                                    yield_messages=yield_messages)
         if not yield_messages:
@@ -106,12 +105,10 @@ class Agency:
                     # Yield each message from the generator
                     for bot_message in gen:
                         if bot_message.sender_name.lower() == "user":
-                            logger.info(bot_message.get_sender_emoji() + " " + bot_message.get_formatted_content())
                             continue
 
                         message = bot_message.get_sender_emoji() + " " + bot_message.get_formatted_content()
-                        logger.info(message)
-                        
+
                         history.append((None, message))
                         yield history
                 except StopIteration:
@@ -356,14 +353,10 @@ class Agency:
             def run(self, caller_thread):
                 if self.recipient.value in caller_thread.sessions.keys():
                     session = caller_thread.sessions[self.recipient.value]
-                    logger.info(f"Retrived Session: caller_agent={session.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
-                    # logger.info(f"Retrived Session: caller_agent={self.caller_agent_name}, recipient_agent={session.recipient_agent.name}")
-                    # logger.info(f"Retrived Session: caller_agent={self.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
                 else:
                     session = Session(caller_agent=self.caller_agent, # TODO: check this parameter if error.
                                       recipient_agent=outer_self.get_agent_by_name(self.recipient.value),
                                       caller_thread=caller_thread)
-                    logger.info(f"New Session Created! caller_agent={self.caller_agent.name}, recipient_agent={self.recipient.value}")
                     caller_thread.sessions[self.recipient.value] = session
 
                 if not isinstance(session, Session):
@@ -379,7 +372,7 @@ class Agency:
                 except StopIteration as e:
                     message = e.value
                 except Exception as e:
-                            logger.info(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
+                            print(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
                             raise e
                 #======================# python.thread.wait_to_join()=================================
                 
@@ -388,7 +381,15 @@ class Agency:
         # TODO: 每个Agent有自己的SendMessage对象。但是当前这个版本认为一个Agent在某一时刻只能有一个SendMessage函数被调用。
         # 实际上，在Session模型中，一个Agent有多个Thread，因此可能会有多个SendMessage并行。所以需要注意全局变量的使用。
         return SendMessage 
-
+    
+    def _session_get_completion(session:Session, 
+                                message:str, 
+                                message_files=None, 
+                                topic: str=None,
+                                is_persist: bool=False,
+                                yield_messages=True):
+        pass
+    
     def get_recipient_names(self):
         """
         Retrieves the names of all agents in the agency.

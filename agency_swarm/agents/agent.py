@@ -11,6 +11,7 @@ from agency_swarm.tools import Retrieval, CodeInterpreter
 from agency_swarm.util.oai import get_openai_client
 from agency_swarm.util.openapi import validate_openapi_spec
 
+from agency_swarm.threads import Thread
 
 class Agent():
     @property
@@ -26,6 +27,20 @@ class Agent():
     @property
     def functions(self):
         return [tool for tool in self.tools if issubclass(tool, BaseTool)]
+
+    @property
+    def threads(self):
+        return self._threads  # 返回数组的内容
+
+    def add_thread(self, thread:Thread):
+        ## Mutex
+        if thread not in self._threads:
+            self._threads.append(thread)  # 提供一个方法来追加项目到数组
+        ## Mutex
+    def remove_thread(self, thread:Thread):
+        ## Mutex
+        self._threads.remove(thread)  # 提供一个方法来追加项目到数组
+        ## Mutex
 
     def __init__(self, id: str = None, name: str = None, description: str = None, instructions: str = "",
                  tools: List[Union[Type[BaseTool], Type[Retrieval], Type[CodeInterpreter]]] = None,
@@ -69,6 +84,7 @@ class Agent():
         # private attributes
         self._assistant: Any = None
         self._shared_instructions = None
+        self._threads = []
 
         # init methods
         self.client = get_openai_client()
