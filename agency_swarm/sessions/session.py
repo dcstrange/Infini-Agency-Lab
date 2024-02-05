@@ -2,6 +2,7 @@ import inspect
 import time
 from typing import Literal
 import json
+import re
 
 from agency_swarm.threads import Thread
 from agency_swarm.threads import ThreadStatus
@@ -223,13 +224,7 @@ class Session:
     def _retrieve_thread_of_topic(self, message:str) -> Thread:
         classifier_instruction = """
         You are the expert responsible for understanding session scenarios. A session consists of several characters discussing a task, the process of performing it, and the intermediate results. You will receive a list of generalized descriptions of multiple sessions, each of which includes information such as: task context, content, goals, current status, existing results, unknown results. Finally, You will receive a new statement from one of the characters. Your task is to choose the session from the list of session descriptions that is most appropriate for that new statement to join, and give reasons why.
-        Output the results in the following json format.
-        {
-            "session_id": ...,
-            "reason": "..."
-        }
-        In this json, give the session id (integer) and reason (string) why the new statement should be joined and the reason for not joining another session. If you think that the new statement cannot join to any existing session, "session_id" will be set to -1. 
-        Must not include any characters other than json in the output.
+        ---
         """    
 
         sessions_decription = ""
@@ -241,31 +236,53 @@ class Session:
         
         # sessions_decription += f"### new statement\n{self.recipient_agent.name}:{message}"
         
-        completion = self.client.chat.completions.create(
-            model="gpt-3.5-turbo-16k",
-            messages=[
-                {"role": "system", "content": classifier_instruction},
-                {"role": "user", "content": sessions_decription},
-                {"role": "user", "content": f"### new statement\n{self.recipient_agent.name}:{message}"},
-            ]
-        )
-        response = completion.choices[0].message.content
+        classifier_instruction += sessions_decription
         
-        # Logging
-        if isinstance(self.caller_agent, User):
-            caller_name = "User"
-        else:
-            caller_name = self.caller_agent.name
-        log_header = f"retrieve one from {len(self.recipient_agent.threads)} sessions that {caller_name} → {self.recipient_agent.name}...\n"
-        logger.info(log_header + response)
+        classifier_instruction += """
+        ---
+        Output the results in the following json format.
+        {
+            "session_id": ...,
+            "reason": "..."
+        }
+        In this json, give the session id (integer) and reason (string) why the new statement should be joined and the reason for not joining another session. If you think that the new statement cannot join to any existing session, "session_id" will be set to -1. 
+        Must not include any characters other than json in the output.
+        """
         
-        #
-        thread_json = json.loads(response)
-        session_id = thread_json["session_id"]
-        if session_id <= 0:
-            return None
-        else:
-            return self.recipient_agent.threads[session_id - 1]
+        while True:
+            completion = self.client.chat.completions.create(
+                model="gpt-3.5-turbo-16k",
+                messages=[
+                    {"role": "system", "content": classifier_instruction},
+                    {"role": "user", "content": f"### new statement\n{self.recipient_agent.name}:{message}"},
+                ]
+            )
+            response = completion.choices[0].message.content
+            
+            # Logging
+            if isinstance(self.caller_agent, User):
+                caller_name = "User"
+            else:
+                caller_name = self.caller_agent.name
+
+            log_header = f"retrieve one from {len(self.recipient_agent.threads)} sessions that {caller_name} → {self.recipient_agent.name}...\n"
+            logger.info(log_header + response)
+            
+            try:
+                match = re.search(r'```json\n([\s\S]*?)\n```', response)
+                if match:
+                    json_str = match.group(1)  # 提取匹配的JSON字符串
+                    thread_json = json.loads(json_str)  # 解析JSON字符串
+                else:
+                    thread_json = json.loads(response)
+                
+                session_id = thread_json["session_id"]
+                if session_id <= 0:
+                    return None
+                else:
+                    return self.recipient_agent.threads[session_id - 1]
+            except Exception as e:
+                logger.info(f"Failed to parse json, try again:{e.value}")
                 
     def _update_task_description(self, thread:Thread, new_history:str):
         # Generate the description of this session at this state. 
