@@ -282,7 +282,7 @@ class Session:
                 else:
                     return self.recipient_agent.threads[session_id - 1]
             except Exception as e:
-                logger.info(f"Failed to parse json, try again:{e.value}")
+                logger.info(f"Failed to parse json, try again:{str(e)}")
                 
     def _update_task_description(self, thread:Thread, new_history:str):
         # Generate the description of this session at this state. 
