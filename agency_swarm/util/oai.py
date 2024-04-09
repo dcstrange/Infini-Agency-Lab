@@ -17,7 +17,7 @@ def get_openai_client():
         if client is None:
             # Check if the API key is set
             api_key = openai.api_key or os.getenv('OPENAI_API_KEY')
-            url =  openai.base_url or os.getenv('OPENAI_API_URL') or 'https://api.openai.com'
+            url =  openai.base_url or os.getenv('OPENAI_BASE_URL')
             if api_key is None:
                 raise ValueError("OpenAI API key is not set. Please set it using set_openai_key.")
             client = instructor.patch(openai.OpenAI(api_key=api_key,
