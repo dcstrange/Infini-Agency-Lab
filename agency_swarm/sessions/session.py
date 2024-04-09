@@ -40,6 +40,7 @@ class Session:
         if not recipient_thread or recipient_thread.status is not ThreadStatus.Ready:
             recipient_thread = Thread(copy_from=recipient_thread)
             logger.info(f'New THREAD:')
+            yield MessageOutput("thread","","",f"New THREAD: {recipient_thread.thread_id}")
 
         recipient_thread.status = ThreadStatus.Running
         recipient_thread.session_as_recipient = self
@@ -92,6 +93,7 @@ class Session:
         sender_name = "user" if isinstance(self.caller_agent, User) else self.caller_agent.name
         playground_url = f'https://platform.openai.com/playground?assistant={self.recipient_agent._assistant.id}&mode=assistant&thread={recipient_thread.thread_id}'
         logger.info(f'THREAD:[ {sender_name} -> {self.recipient_agent.name} ]: URL {playground_url}')
+        yield MessageOutput("system","","",f"THREAD:[ {sender_name} -> {self.recipient_agent.name} ]: URL {playground_url}")
 
         if yield_messages:
             yield MessageOutput("text", self.caller_agent.name, self.recipient_agent.name, message)
@@ -107,6 +109,7 @@ class Session:
                     run_id=run.id
                 )
                 logger.info(f"Run [{run.id}] Status: {run.status}") #推测日志里面多出来的requires_action是这里干的
+                yield MessageOutput("system","","",f"Run [{run.id}] Status: {run.status}")
 
             # function execution
             if run.status == "requires_action":
@@ -171,6 +174,8 @@ class Session:
             # error
             elif run.status == "failed":
                 logger.info("Run Failed. Error: ", run.last_error)
+                yield MessageOutput("system","","",f"Run Failed. Error: {run.last_error}")
+
                 if self.allowed_fails > 0:
                     time.sleep(5)
                     logger.info(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{self.recipient_agent.id}] ... ")
@@ -180,6 +185,8 @@ class Session:
                     raise Exception("Run Failed. Error: ", run.last_error)
             elif run.status == "expired":
                 logger.info("Run expired. Error: ", run.last_error)
+                yield MessageOutput("system","","",f"Run expired. Error: {run.last_error}")
+
                 if self.allowed_fails > 0:
                     time.sleep(5)
                     logger.info(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{self.recipient_agent.id}] ... ")

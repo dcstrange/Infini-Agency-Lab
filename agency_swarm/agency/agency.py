@@ -12,6 +12,7 @@ from agency_swarm.sessions import Session
 from agency_swarm.tools import BaseTool
 from agency_swarm.user import User
 from agency_swarm.util.log_config import setup_logging 
+from agency_swarm.messages import MessageOutput
 logger = setup_logging()
 
 console = Console()
@@ -364,14 +365,16 @@ class Agency:
             def run(self, caller_thread):
                 if self.recipient.value in caller_thread.sessions.keys(): #如果已经有session，直接使用session
                     session = caller_thread.sessions[self.recipient.value]
-                    logger.info(f"Retrived Session: caller_agent={session.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
-                    # logger.info(f"Retrived Session: caller_agent={self.caller_agent_name}, recipient_agent={session.recipient_agent.name}")
-                    # logger.info(f"Retrived Session: caller_agent={self.caller_agent.name}, recipient_agent={session.recipient_agent.name}")
+                    info = f"Retrived Session: caller_agent={session.caller_agent.name}, recipient_agent={session.recipient_agent.name}"
+                    logger.info(info)
+                    yield MessageOutput("thread","","",info)           
                 else:
                     session = Session(caller_agent=self.caller_agent, # TODO: check this parameter if error.
                                       recipient_agent=outer_self.get_agent_by_name(self.recipient.value),
                                       caller_thread=caller_thread)
-                    logger.info(f"New Session Created! caller_agent={self.caller_agent.name}, recipient_agent={self.recipient.value}")
+                    info = f"New Session Created! caller_agent={self.caller_agent.name}, recipient_agent={self.recipient.value}"
+                    logger.info(info)
+                    yield MessageOutput("thread","","",info)
                     caller_thread.sessions[self.recipient.value] = session
 
                 if not isinstance(session, Session):

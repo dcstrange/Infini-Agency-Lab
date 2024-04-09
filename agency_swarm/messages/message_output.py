@@ -7,7 +7,7 @@ from agency_swarm.util.oai import get_openai_client
 console = Console()
 
 class MessageOutput:
-    def __init__(self, msg_type: Literal["function", "function_output", "text", "response_text", "system"], sender_name: str, receiver_name: str, content):
+    def __init__(self, msg_type: Literal["function", "function_output", "text", "response_text", "system","process","thread"], sender_name: str, receiver_name: str, content):
         self.msg_type = msg_type
         self.sender_name = str(sender_name)
         self.receiver_name = str(receiver_name)
@@ -22,6 +22,9 @@ class MessageOutput:
 
         if self.msg_type == "system":
             return "red"
+
+        if self.msg_type == "process" or self.msg_type == "thread":
+            return "white"
 
         combined_str = self.sender_name + self.receiver_name
         encoded_str = combined_str.encode()
@@ -61,6 +64,9 @@ class MessageOutput:
             text = f"{self.sender_name} 🗣️(responses to)  @{self.receiver_name}"
             return text
 
+        if self.msg_type == "process" or self.msg_type == "thread" or self.msg_type == "system":
+            return "info"
+
         text = f"{self.sender_name} 🗣️ @{self.receiver_name}"
 
         return text
@@ -73,7 +79,7 @@ class MessageOutput:
 
     # 获取发送者的emoji
     def get_sender_emoji(self):
-        if self.msg_type == "system":
+        if self.msg_type == "system" or self.msg_type == "process" or self.msg_type == "thread":
             return "🤖"
 
         sender_name = self.sender_name.lower()
