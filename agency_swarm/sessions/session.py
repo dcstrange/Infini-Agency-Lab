@@ -39,7 +39,7 @@ class Session:
         recipient_thread = self._retrieve_thread_of_topic(message) # try to lock the recipient_thread
         if not recipient_thread or recipient_thread.status is not ThreadStatus.Ready:
             recipient_thread = Thread(copy_from=recipient_thread)
-            logger.info(f'New THREAD:')
+            #logger.info(f'New THREAD:')
             yield MessageOutput("thread","","",f"New THREAD: {recipient_thread.thread_id}")
 
         recipient_thread.status = ThreadStatus.Running
@@ -92,7 +92,7 @@ class Session:
         # Determine the sender's name based on the agent type
         sender_name = "user" if isinstance(self.caller_agent, User) else self.caller_agent.name
         playground_url = f'https://platform.openai.com/playground?assistant={self.recipient_agent._assistant.id}&mode=assistant&thread={recipient_thread.thread_id}'
-        logger.info(f'THREAD:[ {sender_name} -> {self.recipient_agent.name} ]: URL {playground_url}')
+        #logger.info(f'THREAD:[ {sender_name} -> {self.recipient_agent.name} ]: URL {playground_url}')
         yield MessageOutput("system","","",f"THREAD:[ {sender_name} -> {self.recipient_agent.name} ]: URL {playground_url}")
 
         if yield_messages:
@@ -108,7 +108,7 @@ class Session:
                     thread_id=recipient_thread.thread_id,
                     run_id=run.id
                 )
-                logger.info(f"Run [{run.id}] Status: {run.status}") #推测日志里面多出来的requires_action是这里干的
+                #logger.info(f"Run [{run.id}] Status: {run.status}") #推测日志里面多出来的requires_action是这里干的
                 yield MessageOutput("system","","",f"Run [{run.id}] Status: {run.status}")
 
             # function execution
@@ -173,7 +173,7 @@ class Session:
                     
             # error
             elif run.status == "failed":
-                logger.info("Run Failed. Error: ", run.last_error)
+                #logger.info("Run Failed. Error: ", run.last_error)
                 yield MessageOutput("system","","",f"Run Failed. Error: {run.last_error}")
 
                 if self.allowed_fails > 0:
@@ -184,7 +184,7 @@ class Session:
                 else:
                     raise Exception("Run Failed. Error: ", run.last_error)
             elif run.status == "expired":
-                logger.info("Run expired. Error: ", run.last_error)
+                #logger.info("Run expired. Error: ", run.last_error)
                 yield MessageOutput("system","","",f"Run expired. Error: {run.last_error}")
 
                 if self.allowed_fails > 0:

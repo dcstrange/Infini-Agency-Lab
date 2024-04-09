@@ -366,14 +366,14 @@ class Agency:
                 if self.recipient.value in caller_thread.sessions.keys(): #如果已经有session，直接使用session
                     session = caller_thread.sessions[self.recipient.value]
                     info = f"Retrived Session: caller_agent={session.caller_agent.name}, recipient_agent={session.recipient_agent.name}"
-                    logger.info(info)
+                    #logger.info(info)
                     yield MessageOutput("thread","","",info)           
                 else:
                     session = Session(caller_agent=self.caller_agent, # TODO: check this parameter if error.
                                       recipient_agent=outer_self.get_agent_by_name(self.recipient.value),
                                       caller_thread=caller_thread)
                     info = f"New Session Created! caller_agent={self.caller_agent.name}, recipient_agent={self.recipient.value}"
-                    logger.info(info)
+                    #logger.info(info)
                     yield MessageOutput("thread","","",info)
                     caller_thread.sessions[self.recipient.value] = session
 
