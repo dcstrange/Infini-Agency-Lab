@@ -212,6 +212,7 @@ class Agent():
 
                 if not os.path.isdir(f_path):
                     f_path = os.path.join(self.get_class_folder_path(), files_folder)
+                    f_path = os.path.normpath(f_path)
 
                 if os.path.isdir(f_path):
                     f_paths = os.listdir(f_path)

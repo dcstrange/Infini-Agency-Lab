@@ -39,7 +39,7 @@ class Session:
         recipient_thread = self._retrieve_thread_of_topic(message) # try to lock the recipient_thread
         if not recipient_thread or recipient_thread.status is not ThreadStatus.Ready:
             recipient_thread = Thread(copy_from=recipient_thread)
-            #logger.info(f'New THREAD:')
+            #logger.info(f'New THREAD:') 创建新的线程
             yield MessageOutput("thread","","",f"New THREAD: {recipient_thread.thread_id}")
 
         recipient_thread.status = ThreadStatus.Running
@@ -97,7 +97,8 @@ class Session:
 
         if yield_messages:
             yield MessageOutput("text", self.caller_agent.name, self.recipient_agent.name, message)
-            
+
+        # 等价于原版的create_run    
         run = self._run_message(recipient_thread, message, self.recipient_agent, message_files)
         
         while True: # Check state of Assistant AI running in the State-Machine
@@ -108,8 +109,8 @@ class Session:
                     thread_id=recipient_thread.thread_id,
                     run_id=run.id
                 )
-                #logger.info(f"Run [{run.id}] Status: {run.status}") #推测日志里面多出来的requires_action是这里干的
-                yield MessageOutput("system","","",f"Run [{run.id}] Status: {run.status}")
+                logger.info(f"Run [{run.id}] Status: {run.status}") 
+                #yield MessageOutput("system","","",f"Run [{run.id}] Status: {run.status}")
 
             # function execution
             if run.status == "requires_action":
@@ -173,8 +174,8 @@ class Session:
                     
             # error
             elif run.status == "failed":
-                #logger.info("Run Failed. Error: ", run.last_error)
-                yield MessageOutput("system","","",f"Run Failed. Error: {run.last_error}")
+                logger.info("Run Failed. Error: ", run.last_error)
+                #yield MessageOutput("system","","",f"Run Failed. Error: {run.last_error}")
 
                 if self.allowed_fails > 0:
                     time.sleep(5)
@@ -184,8 +185,8 @@ class Session:
                 else:
                     raise Exception("Run Failed. Error: ", run.last_error)
             elif run.status == "expired":
-                #logger.info("Run expired. Error: ", run.last_error)
-                yield MessageOutput("system","","",f"Run expired. Error: {run.last_error}")
+                logger.info("Run expired. Error: ", run.last_error)
+                #yield MessageOutput("system","","",f"Run expired. Error: {run.last_error}")
 
                 if self.allowed_fails > 0:
                     time.sleep(5)
@@ -250,7 +251,7 @@ class Session:
         # sessions_decription += f"### new statement\n{self.recipient_agent.name}:{message}"
         
         completion = self.client.chat.completions.create(
-            model="gpt-3.5-turbo-16k",
+            model="gpt-3.5-turbo-16k",  #这里要换模型吗？
             messages=[
                 {"role": "system", "content": classifier_instruction},
                 {"role": "user", "content": sessions_decription},
@@ -336,7 +337,7 @@ class Session:
         try:
             # init tool
             func = func(**eval(tool_call.function.arguments))
-            func.caller_agent = self.recipient_agent
+            func.caller_agent = self.recipient_agent # 在这里设置caller_agent
             # get outputs from the tool
             output = func.run(caller_thread) #如果这里的func是SendMessage，这个run就会对应这个类的run方法，见agency.py/_create_send_message_tool()/run()
 

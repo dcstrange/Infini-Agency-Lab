@@ -1,4 +1,12 @@
 import os
+import os
+from pathlib import Path
+from getpass import getpass
+
+project_root = Path(__file__).parent.parent.absolute()
+os.environ['AS_PROJECT_ROOT'] = str(project_root)
+print("Project root set to:", os.environ['AS_PROJECT_ROOT'])
+
 from agency_swarm import set_openai_key
 from getpass import getpass
 
@@ -38,7 +46,8 @@ agency_manifesto = """"""
 agency = Agency([
     ceo,
     [ceo, agent_CoT],
+
     [agent_CoT, ceo]
 ], shared_instructions=agency_manifesto)
 
-agency.demo_gradio(height=900)
+agency.demo_gradio(height=600)
