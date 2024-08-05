@@ -1,24 +1,27 @@
 import inspect
 import time
-from typing import Literal
+from typing import List, Literal, Optional
 import json
+from openai.types.beta.threads.run import Run
 
 from agency_swarm.threads import Thread
 from agency_swarm.threads import ThreadStatus
 from agency_swarm.threads import ThreadProperty
 
+from agency_swarm.tools import FileSearch, CodeInterpreter
 from agency_swarm.agents import Agent
 from agency_swarm.messages import MessageOutput
+from openai.types.beta.threads.message import Attachment
 from agency_swarm.user import User
 from agency_swarm.util.oai import get_openai_client
-from agency_swarm.util.log_config import setup_logging 
+from agency_swarm.util.log_config import setup_logging
+from agency_swarm.util.streaming import AgencyEventHandler
 logger = setup_logging()
 
 class Session:
     """
     对于一个<sender, recipient> agent pair来说，1个sender.thread只能属于一个Session。可以有多个sender.thread属于不同的session
     """
-    
     def __init__(self, caller_agent: Literal[Agent, User], recipient_agent: Agent, caller_thread:Thread=None):
         self.caller_agent = caller_agent
         self.recipient_agent = recipient_agent
@@ -29,18 +32,41 @@ class Session:
         self.cached_recipient_threads = []
         self.description = {}
         self.allowed_fails = 5
-            
+
+    # new
+    def get_completion_stream(self,
+                              message:str, 
+                              event_handler: type(AgencyEventHandler),
+                              recipient_agent: Agent=None,
+                              attachments: Optional[List[Attachment]]=None, 
+                              is_persist: bool=True,
+                              message_files=None):
+        
+        return self.get_completion(message, 
+                                   message_files=message_files,
+                                   recipient_agent=recipient_agent, 
+                                   event_handler=event_handler,
+                                   attachments=attachments, 
+                                   is_persist=is_persist, 
+                                   yield_messages=False)
+
+       
     def get_completion(self, 
-                       message:str, 
-                       message_files=None, 
+                       message:str,
+                       recipient_agent: Agent=None, 
+                       event_handler: type(AgencyEventHandler) = None,
+                       attachments: Optional[List[dict]]=None,
+                       message_files: List[str]=None, 
                        is_persist: bool=True,
-                       yield_messages=True):
+                       yield_messages=False):
+
+        if not recipient_agent:
+            recipient_agent = self.recipient_agent
 
         recipient_thread = self._retrieve_thread_of_topic(message) # try to lock the recipient_thread
         if not recipient_thread or recipient_thread.status is not ThreadStatus.Ready:
             recipient_thread = Thread(copy_from=recipient_thread)
-            #logger.info(f'New THREAD:') 创建新的线程
-            yield MessageOutput("thread","","",f"New THREAD: {recipient_thread.thread_id}")
+            logger.info(f'New THREAD:{recipient_thread.thread_id}') #创建新的线程
 
         recipient_thread.status = ThreadStatus.Running
         recipient_thread.session_as_recipient = self
@@ -50,8 +76,28 @@ class Session:
         else:
             recipient_thread.in_message_chain = self.caller_thread.in_message_chain
 
+        if not attachments:
+            attachments = []
+        
+        if message_files:
+            recipient_tools = []
+            if FileSearch in recipient_agent.tools:
+                recipient_tools.append({"type": "file_search"})
+            if CodeInterpreter in recipient_agent.tools:
+                recipient_tools.append({"type": "code_interpreter"})
+
+            for file_id in message_files:
+                attachments.append({"file_id": file_id,
+                                    "tools": recipient_tools or [{"type": "file_search"}]})
+
+
         # 向recipient thread发送消息并获取回复
-        gen = self._get_completion_from_thread(recipient_thread, message, message_files, yield_messages)
+        gen = self._get_completion_from_thread(recipient_thread=recipient_thread, 
+                                               message=message, 
+                                               recipient_agent = recipient_agent,
+                                               attachments=attachments, 
+                                               event_handler=event_handler, 
+                                               yield_messages=yield_messages)
         try:
             while True:
                 msg = next(gen)
@@ -84,34 +130,41 @@ class Session:
         recipient_thread.status = ThreadStatus.Ready
         recipient_thread.session_as_recipient = None
         # Unlock the recipient_thread
+
         return response
 
     # 向recipient thread发送消息并获取回复
-    def _get_completion_from_thread(self, recipient_thread: Thread, message: str, message_files=None, yield_messages=True):
+    def _get_completion_from_thread(self, 
+                                    recipient_thread: Thread, 
+                                    message: str,
+                                    recipient_agent:Agent=None,
+                                    attachments: Optional[List[dict]]=None, 
+                                    event_handler: type(AgencyEventHandler) = None,  
+                                    yield_messages=True):
 
         # Determine the sender's name based on the agent type
         sender_name = "user" if isinstance(self.caller_agent, User) else self.caller_agent.name
-        playground_url = f'https://platform.openai.com/playground?assistant={self.recipient_agent._assistant.id}&mode=assistant&thread={recipient_thread.thread_id}'
-        #logger.info(f'THREAD:[ {sender_name} -> {self.recipient_agent.name} ]: URL {playground_url}')
-        yield MessageOutput("system","","",f"THREAD:[ {sender_name} -> {self.recipient_agent.name} ]: URL {playground_url}")
-
-        if yield_messages:
-            yield MessageOutput("text", self.caller_agent.name, self.recipient_agent.name, message)
-
-        # 等价于原版的create_run    
-        run = self._run_message(recipient_thread, message, self.recipient_agent, message_files)
+        playground_url = f'https://platform.openai.com/playground?assistant={recipient_agent._assistant.id}&mode=assistant&thread={recipient_thread.thread_id}'
+        logger.info(f'THREAD:[ {sender_name} -> {recipient_agent.name} ]: URL {playground_url}')
         
-        while True: # Check state of Assistant AI running in the State-Machine
-            # wait until run completes
-            while run.status in ['queued', 'in_progress']:
-                time.sleep(5)
-                run = self.client.beta.threads.runs.retrieve(
-                    thread_id=recipient_thread.thread_id,
-                    run_id=run.id
-                )
-                logger.info(f"Run [{run.id}] Status: {run.status}") 
-                #yield MessageOutput("system","","",f"Run [{run.id}] Status: {run.status}")
+        if yield_messages:
+            yield MessageOutput("text", self.caller_agent.name, recipient_agent.name, message)
 
+        if event_handler:
+            event_handler.agent_name = self.caller_agent.name
+            event_handler.recipient_agent_name = recipient_agent.name
+   
+        run = self._run_message(thread=recipient_thread, 
+                                message=message,
+                                attachments=attachments,
+                                event_handler=event_handler, 
+                                agent=recipient_agent)
+        
+        full_message = ""
+        # Check state of Assistant AI running in the State-Machine
+        while True: 
+            # wait until run completes
+            run = self._run_util_done(run,recipient_thread)
             # function execution
             if run.status == "requires_action":
                 tool_calls = run.required_action.submit_tool_outputs.tool_calls
@@ -119,20 +172,22 @@ class Session:
                 tool_outputs_for_resubmit = []
                 for tool_call in tool_calls:
                     if yield_messages:
-                        yield MessageOutput("function", self.recipient_agent.name, self.caller_agent.name,
+                        yield MessageOutput("function", recipient_agent.name, self.caller_agent.name,
                                             str(tool_call.function))
                     
                     # TODO:这里如果是SendMessage函数，后续会采用创建新Python线程来执行，需要修改处理逻辑。
-                    output = self._execute_tool(tool_call, caller_thread=recipient_thread)
+                    output = self._execute_tool(tool_call=tool_call, 
+                                                caller_thread=recipient_thread,
+                                                event_handler=event_handler,
+                                                recipient_agent=recipient_agent)
                     if inspect.isgenerator(output):
                         try:
                             while True:
-                                item = next(output) # 可能会抛出超时异常(Error Code: 400)
+                                item = next(output) 
                                 if isinstance(item, MessageOutput) and yield_messages:
                                     yield item
                         except StopIteration as e:
-                            output = e.value
-                            #logger.info(output)
+                            output = e.value    
                         except Exception as e:
                             logger.info(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
                             raise e
@@ -140,47 +195,44 @@ class Session:
                         if yield_messages:
                             yield MessageOutput("function_output", tool_call.function.name, self.recipient_agent.name,
                                                 output)
+                    if event_handler:
+                        event_handler.agent_name = self.caller_agent.name
+                        event_handler.recipient_agent_name = recipient_agent.name
 
                     tool_outputs.append({"tool_call_id": tool_call.id, "output": str(output)})
                     tool_outputs_for_resubmit.append({"tools_calls": tool_call.model_dump_json(), "output":str(output)})
+                
                 # submit tool outputs
                 try:
-                    run = self.client.beta.threads.runs.submit_tool_outputs(
-                        thread_id=recipient_thread.thread_id,
-                        run_id=run.id,
-                        tool_outputs=tool_outputs
-                    )
+                    run = self._submit_tool_outputs(run=run,recipient_thread=recipient_thread, 
+                                               tool_outputs=tool_outputs,
+                                               event_handler=event_handler)
                 except Exception as e:
                     # ☑️[DONE]: 需要考虑提交tool结果是否会失败。例如因为tool执行时间过长，run被自动关闭。这时候需要重新执行run并提交上次结果。
                     # 由于调用自定义Funtion超时，导致RUN进入expired状态后无法提交Funtion执行结果。但由于目前AssistantAPI不支持编辑RUN’step，这就无法做到断点续传。因此一个妥协的办法是将函数的执行结果包装成提示词消息追加到Thread中，然后再re-RUN。
 
                     logger.info(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
                     logger.info(f"Resubmit the expired tool's output with RUN's information. See: run_id: {run.id}, thread_id: {recipient_thread.thread_id} ...")
-                    # Step 1. 获取失败的RUN'step
-                    # run_steps = self.client.beta.threads.runs.steps.list(
-                    #     thread_id=recipient_thread.thread_id,
-                    #     run_id=run.id,
-                    #     limit=1,
-                    #     order="desc"
-                    # )
-                    # fail_step = run_steps._get_page_items()[0]
                     
-                    # Step 2. 将失败step的信息和tool的返回值打包成新的提示词
+                    # Step 1. 将失败step的信息和tool的返回值打包成新的提示词
                     wapper_output = self._wapper_expired_tool_output(str(tool_outputs_for_resubmit))
                     logger.info(wapper_output)
                     
-                    # Step 3. 新的提示词追加到Thread中，并重新执行
-                    run = self._run_message(recipient_thread, wapper_output, self.recipient_agent, message_files)
+                    # Step 2. 新的提示词追加到Thread中，并重新执行
+                    run = self._run_message(thread=recipient_thread, 
+                                                 message=wapper_output, 
+                                                 agent=recipient_agent, 
+                                                 attachments=attachments,
+                                                 event_handler=event_handler)
                     
             # error
             elif run.status == "failed":
                 logger.info("Run Failed. Error: ", run.last_error)
-                #yield MessageOutput("system","","",f"Run Failed. Error: {run.last_error}")
-
+              
                 if self.allowed_fails > 0:
                     time.sleep(5)
-                    logger.info(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{self.recipient_agent.id}] ... ")
-                    run = self._run(recipient_thread, self.recipient_agent) # try again.
+                    logger.info(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{recipient_agent.id}] ... ")
+                    run = self._run(recipient_thread, recipient_agent) # try again.
                     self.allowed_fails -= 1
                 else:
                     raise Exception("Run Failed. Error: ", run.last_error)
@@ -190,36 +242,94 @@ class Session:
 
                 if self.allowed_fails > 0:
                     time.sleep(5)
-                    logger.info(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{self.recipient_agent.id}] ... ")
-                    run = self._run(recipient_thread, self.recipient_agent) # try again.
+                    logger.info(f"Retry run the thread:[{recipient_thread.thread_id}] on assistant:[{recipient_agent.id}] ... ")
+                    run = self._run(recipient_thread, recipient_agent) # try again.
                     self.allowed_fails -= 1
                 else:
                     raise Exception("Run Failed. Error: ", run.last_error)
             # return assistant message
             else:
-                messages = self.client.beta.threads.messages.list(
-                    thread_id=recipient_thread.thread_id
-                )
-                message = messages.data[0].content[0].text.value
+                full_message += self._get_last_message_text(
+                                recipient_thread=recipient_thread)
 
                 if yield_messages:
-                    yield MessageOutput("response_text", self.recipient_agent.name, self.caller_agent.name, message)
+                    yield MessageOutput("response_text", recipient_agent.name, self.caller_agent.name, message)
 
-                return message
+                # 新版在这里对agent的回复加入了自动检查机制
 
-    def _run_message(self, thread:Thread, message:str, agent:Agent, message_files=None):
+                return full_message
+
+
+    def _run_util_done(self,run:Run,recipient_thread: Thread)->Run:
+        while run.status in ['queued', 'in_progress']:
+            time.sleep(5)
+            run = self.client.beta.threads.runs.retrieve(
+                thread_id=recipient_thread.thread_id,
+                run_id=run.id
+            )
+            logger.info(f"Run [{run.id}] Status: {run.status}") 
+        return run
+        
+    def _submit_tool_outputs(self, 
+                             run:Run,
+                             recipient_thread: Thread, 
+                             tool_outputs,
+                             event_handler: type(AgencyEventHandler))->Run:
+        if event_handler:
+            with self.client.beta.threads.runs.submit_tool_outputs_stream(
+                    thread_id=recipient_thread.thread_id,
+                    run_id=run.id,
+                    tool_outputs=tool_outputs,
+                    event_handler=event_handler()
+            ) as stream:
+                stream.until_done()
+                run = stream.get_final_run()
+        else:
+            run = self.client.beta.threads.runs.submit_tool_outputs(
+                thread_id=recipient_thread.thread_id,
+                run_id=run.id,
+                tool_outputs=tool_outputs
+            )
+        return run
+
+    def _get_last_message_text(self,recipient_thread: Thread):
+        messages = self.client.beta.threads.messages.list(
+            thread_id=recipient_thread.thread_id,
+            limit=1
+        )
+
+        if len(messages.data) == 0 or len(messages.data[0].content) == 0:
+            return ""
+
+        return messages.data[0].content[0].text.value
+
+    def _run_message(self, 
+                     thread:Thread, 
+                     message:str, 
+                     agent:Agent,
+                     attachments: Optional[List[dict]]=None,
+                     event_handler: type(AgencyEventHandler) = None)->Run:
         # create message
         self.client.beta.threads.messages.create(
             thread_id=thread.thread_id,
             role="user",
             content=message,
-            file_ids=message_files if message_files else [],
+            attachments=attachments,
         )
         # create run
-        run = self.client.beta.threads.runs.create(
-            thread_id=thread.thread_id,
-            assistant_id=agent.id,
-        )
+        if event_handler:
+            with self.client.beta.threads.runs.stream(
+                    thread_id=thread.thread_id,
+                    event_handler=event_handler(),
+                    assistant_id=agent.id
+            ) as stream:
+                stream.until_done()
+                run = stream.get_final_run()
+        else:
+            run = self.client.beta.threads.runs.create_and_poll(
+                thread_id=thread.thread_id,
+                assistant_id=agent.id,
+            )
         return run
     
     def _run(self, thread:Thread, agent:Agent):
@@ -327,8 +437,14 @@ class Session:
         thread.task_description = task_description
         return task_description
 
-    def _execute_tool(self, tool_call, caller_thread:Thread):
-        funcs = self.recipient_agent.functions #这里的funcstion读取自agent的tools,每一个都是BaseTool的子类
+    def _execute_tool(self, tool_call, 
+                      caller_thread:Thread,
+                      event_handler,
+                      recipient_agent:Agent):
+        if not recipient_agent:
+            recipient_agent= self.recipient_agent
+
+        funcs = recipient_agent.functions #这里的funcstion读取自agent的tools,每一个都是BaseTool的子类
         func = next((func for func in funcs if func.__name__ == tool_call.function.name), None)
 
         if not func:
@@ -337,7 +453,8 @@ class Session:
         try:
             # init tool
             func = func(**eval(tool_call.function.arguments))
-            func.caller_agent = self.recipient_agent # 在这里设置caller_agent
+            func.caller_agent = recipient_agent # 在这里设置caller_agent
+            func.event_handler = event_handler
             # get outputs from the tool
             output = func.run(caller_thread) #如果这里的func是SendMessage，这个run就会对应这个类的run方法，见agency.py/_create_send_message_tool()/run()
 

@@ -10,6 +10,7 @@ class BaseTool(OpenAISchema, ABC):
     caller_agent: Optional[Any] = Field(
         None, description="The agent that called this tool. Please ignore this field."
     )
+    event_handler: Any = None
 
     @classmethod
     @property
@@ -19,12 +20,15 @@ class BaseTool(OpenAISchema, ABC):
 
         properties = schema.get("parameters", {}).get("properties", {})
         properties.pop("caller_agent", None)
+        properties.pop("event_handler", None)
         properties.pop("caller_agent_name", None)
 
         # If 'caller_agent' is in the required list, remove it
         required = schema.get("parameters", {}).get("required", [])
         if "caller_agent" in required:
             required.remove("caller_agent")
+        if "event_handler" in required:
+            required.remove("event_handler")
         if "caller_agent_name" in required:
             required.remove("caller_agent_name")
 

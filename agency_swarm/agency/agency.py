@@ -5,13 +5,13 @@ import queue
 import threading
 import uuid
 from enum import Enum
-from typing import List, TypedDict, Callable, Any, Dict, Literal, Union
+from typing import List, Type, TypedDict, Callable, Any, Dict, Literal, Union
 
-from openai.types.beta.threads import Message
 from openai.types.beta.threads.runs import RunStep
 from pydantic import Field, field_validator, model_validator
 from rich.console import Console
 from typing_extensions import override
+from openai.types.beta.threads import Message
 
 from agency_swarm.agents import Agent
 from agency_swarm.sessions import Session
@@ -21,7 +21,7 @@ from agency_swarm.threads import Thread
 from agency_swarm.tools import BaseTool
 from agency_swarm.user import User
 
-#from agency_swarm.util.streaming import AgencyEventHandler
+from agency_swarm.util.streaming import AgencyEventHandler
 from agency_swarm.util.log_config import setup_logging 
 
 logger = setup_logging()
@@ -40,8 +40,12 @@ class ThreadsCallbacks(TypedDict):
 
 
 class Agency:
-
-    def __init__(self, agency_chart, shared_instructions="", shared_files=None):
+    SessionType = Session
+    def __init__(self, 
+                 agency_chart, 
+                 shared_instructions="", 
+                 shared_files=None
+                 ):
         """
         Initializes the Agency object, setting up agents, sessions, and core functionalities.
 
@@ -71,8 +75,10 @@ class Agency:
         self.user = User()
         self.entrance_session = Session(self.user, self.ceo)
 
-    def get_completion(self, message: str, message_files=None, 
-    yield_messages=True):
+    def get_completion(self, message: str, 
+                       message_files=None, 
+                       attachments: List[dict] = None,
+                       yield_messages=True):
         """
         Retrieves the completion for a given message from the user entrance session.
 
@@ -86,6 +92,7 @@ class Agency:
         """
         gen = self.entrance_session.get_completion(message=message, 
                                                    message_files=message_files, 
+                                                   attachments=attachments, 
                                                    is_persist=True, 
                                                    yield_messages=yield_messages)
         if not yield_messages:
@@ -96,6 +103,42 @@ class Agency:
                     return e.value
 
         return gen
+
+    def get_completion_stream(self, 
+                              message: str, 
+                             event_handler: type(AgencyEventHandler),
+                             message_files: List[str],
+                             recipient_agent: Agent=None,
+                             attachments: List[dict] = None):
+        """
+        Generates a stream of completions for a given message from the main thread.
+
+        Parameters:
+            message (str): The message for which completion is to be retrieved.
+            event_handler (type(AgencyEventHandler)): The event handler class to handle the completion stream. https://github.com/openai/openai-python/blob/main/helpers.md
+            message_files (list, optional): A list of file ids to be sent as attachments with the message. When using this parameter, files will be assigned both to file_search and code_interpreter tools if available. It is recommended to assign files to the most sutiable tool manually, using the attachments parameter.  Defaults to None.
+        Returns:
+            Final response: Final response from the main thread.
+        """
+        if not inspect.isclass(event_handler):
+            raise Exception("Event handler must not be an instance.")
+        
+        res = self.entrance_session.get_completion_stream(
+            message=message,
+            event_handler=event_handler,
+            message_files=message_files,
+            recipient_agent = recipient_agent,
+            attachments=attachments,
+            is_persist=True
+        )
+
+        while True:
+            try:
+                next(res)
+            except StopIteration as e:
+                event_handler.on_all_streams_end()
+                return e.value
+         
 
     def demo_gradio(self, height=450, dark_mode=True):
         """
@@ -127,8 +170,9 @@ class Agency:
         message_file_ids = []   # 所有文件的id
         message_file_names = None
         # recipient_agents = [agent.name for agent in self.main_recipients]
-        # recipient_agent = self.main_recipients[0]
+        recipient_agent = self.ceo
         with gr.Blocks(js=js) as demo:
+            chatbot_queue = queue.Queue()
             chatbot = gr.Chatbot(height=height)
             with gr.Row():
                 with gr.Column(scale=9):
@@ -168,44 +212,139 @@ class Agency:
                 return "No files uploaded"
 
             def user(user_message, history):
+                nonlocal recipient_agent
                 if history is None:
                     history = []
 
                 original_user_message = user_message
 
-                # Append the user message with a placeholder for bot response
-                user_message = "👤 User: " + user_message.strip()
+                if recipient_agent:
+                    user_message = f"👤 User 🗣️ @{recipient_agent.name}:\n" + user_message.strip()
+                else:
+                    user_message = f"👤 User:" + user_message.strip()
                 nonlocal message_file_names
                 if message_file_names:
                     user_message += "\n\n📎 Files:\n" + "\n".join(message_file_names)
 
                 return original_user_message, history + [[user_message, None]]
 
+            class GradioEventHandler(AgencyEventHandler):
+                message_output = None
+
+                @override
+                def on_message_created(self, message: Message) -> None:
+                    if message.role == "user":
+                        self.message_output = MessageOutput("text", self.agent_name, self.recipient_agent_name,
+                                                            +message.content[0].text.value)
+
+                    else:
+                        self.message_output = MessageOutput("text", self.recipient_agent_name, self.agent_name,
+                                                            "")
+
+                    chatbot_queue.put("[new_message]")
+                    chatbot_queue.put("mc:"+self.message_output.get_formatted_content())
+
+                @override
+                def on_text_delta(self, delta, snapshot):
+                    chatbot_queue.put(delta.value)
+
+                @override
+                def on_tool_call_created(self, tool_call):
+                    # TODO: add support for code interpreter and retirieval tools
+                    if tool_call.type == "function":
+                        chatbot_queue.put("[new_message]")
+                        self.message_output = MessageOutput("function", self.recipient_agent_name, self.agent_name,
+                                                            str(tool_call.function))
+                        chatbot_queue.put("tcc:"+self.message_output.get_formatted_header() + "\n")
+
+                @override
+                def on_tool_call_done(self, snapshot):
+                    self.message_output = None
+
+                    # TODO: add support for code interpreter and retirieval tools
+                    if snapshot.type != "function":
+                        return
+
+                    chatbot_queue.put(str(snapshot.function))
+
+                    if snapshot.function.name == "SendMessage":
+                        try:
+                            args = eval(snapshot.function.arguments)
+                            recipient = args["recipient"]
+                            self.message_output = MessageOutput("text", self.recipient_agent_name, recipient,
+                                                                args["message"])
+
+                            chatbot_queue.put("[new_message]")
+                            chatbot_queue.put("tcd:"+self.message_output.get_formatted_content())
+                        except Exception as e:
+                            pass
+
+                    self.message_output = None
+
+                @override
+                def on_run_step_done(self, run_step: RunStep) -> None:
+                    if run_step.type == "tool_calls":
+                        for tool_call in run_step.step_details.tool_calls:
+                            if tool_call.type != "function":
+                                continue
+
+                            if tool_call.function.name == "SendMessage":
+                                continue
+
+                            self.message_output = None
+                            chatbot_queue.put("[new_message]")
+
+                            self.message_output = MessageOutput("function_output", tool_call.function.name,
+                                                                self.recipient_agent_name,
+                                                                +tool_call.function.output)
+
+                            chatbot_queue.put(self.message_output.get_formatted_header() + "\n")
+                            chatbot_queue.put("rsd:"+tool_call.function.output)
+
+                @override
+                @classmethod
+                def on_all_streams_end(cls):
+                    cls.message_output = None
+                    chatbot_queue.put("[end]")
+
+
             def bot(original_message, history):
                 nonlocal message_file_ids
                 nonlocal message_file_names
-                # nonlocal recipient_agent
-                print("Message files: ", message_file_ids)
+                nonlocal recipient_agent
+                if message_file_ids:
+                    print("Message files: ", message_file_ids)
                 # Replace this with your actual chatbot logic
+          
+                completion_thread = threading.Thread(target=self.get_completion_stream, args=(
+                    original_message, GradioEventHandler, message_file_ids,recipient_agent))
+                completion_thread.start()                
                 
-                gen = self.get_completion(message=original_message, message_files=message_file_ids,)
                 message_file_ids = []
                 message_file_names = []
-                try:
-                    # Yield each message from the generator
-                    for bot_message in gen:
-                        if bot_message.sender_name.lower() == "user":
-                            logger.info(bot_message.get_sender_emoji() + " " + bot_message.get_formatted_content())
+
+                new_message = True
+                while True:
+                    try:
+                        bot_message = chatbot_queue.get(block=True)
+
+                        if bot_message == "[end]":
+                            completion_thread.join()
+                            break
+
+                        if bot_message == "[new_message]":
+                            new_message = True
                             continue
 
-                        message = bot_message.get_sender_emoji() + " " + bot_message.get_formatted_content()
-                        logger.info(message)
-                        
-                        history.append((None, message))
-                        yield "",history
-                except StopIteration:
-                    # Handle the end of the conversation if necessary
-                    pass
+                        if new_message:
+                            history.append([None, bot_message])
+                            new_message = False
+                        else:
+                            history[-1][1] += bot_message
+
+                        yield "", history                    
+                    except queue.Empty:
+                        break
 
             button.click(
                 user,
@@ -404,8 +543,8 @@ class Agency:
             message_files: List[str] = Field(default=None,
                                              description="A list of file ids to be sent as attachments to the message. Only use this if you have the file id that starts with 'file-'.",
                                              examples=["file-1234", "file-5678"])
-            # caller_agent_name: str = Field(default=agent.name,
-            #                                description="The agent calling this tool. Defaults to your name. Do not change it.")
+            caller_agent_name: str = Field(default=agent.name,
+                                           description="The agent calling this tool. Defaults to your name. Do not change it.")
 
             @field_validator('recipient')
             def check_recipient(cls, value):
@@ -423,15 +562,13 @@ class Agency:
                 if self.recipient.value in caller_thread.sessions.keys(): #如果已经有session，直接使用session
                     session = caller_thread.sessions[self.recipient.value]
                     info = f"Retrived Session: caller_agent={session.caller_agent.name}, recipient_agent={session.recipient_agent.name}"
-                    #logger.info(info)
-                    yield MessageOutput("thread","","",info)           
+                    logger.info(info)           
                 else:
                     session = Session(caller_agent=self.caller_agent, # TODO: check this parameter if error.
                                       recipient_agent=outer_self.get_agent_by_name(self.recipient.value),
                                       caller_thread=caller_thread)
                     info = f"New Session Created! caller_agent={self.caller_agent.name}, recipient_agent={self.recipient.value}"
-                    #logger.info(info)
-                    yield MessageOutput("thread","","",info)
+                    logger.info(info)
                     caller_thread.sessions[self.recipient.value] = session
 
                 if not isinstance(session, Session):
@@ -440,15 +577,13 @@ class Agency:
                 #===================# python.thread.create()====================================
                 # TODO: 创建新的Python线程执行session
                 caller_thread.session_as_sender = session
-                gen = session.get_completion(message=self.message, message_files=self.message_files)
                 try:
-                    while True:
-                        yield next(gen)
-                except StopIteration as e:
-                    message = e.value
+                    message = session.get_completion(message=self.message, 
+                                             message_files=self.message_files,
+                                             event_handler=self.event_handler)
                 except Exception as e:
-                            logger.info(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
-                            raise e
+                    logger.info(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}",exc_info=True)
+                    raise e
                 #======================# python.thread.wait_to_join()=================================
                 
                 return message or ""
