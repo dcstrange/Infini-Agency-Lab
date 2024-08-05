@@ -1,13 +1,12 @@
 import inspect
 import time
-from typing import List, Literal, Optional
 import json
+from typing import List, Literal, Optional
 from openai.types.beta.threads.run import Run
 
 from agency_swarm.threads import Thread
 from agency_swarm.threads import ThreadStatus
 from agency_swarm.threads import ThreadProperty
-
 from agency_swarm.tools import FileSearch, CodeInterpreter
 from agency_swarm.agents import Agent
 from agency_swarm.messages import MessageOutput
@@ -16,6 +15,7 @@ from agency_swarm.user import User
 from agency_swarm.util.oai import get_openai_client
 from agency_swarm.util.log_config import setup_logging
 from agency_swarm.util.streaming import AgencyEventHandler
+
 logger = setup_logging()
 
 class Session:
@@ -27,13 +27,13 @@ class Session:
         self.recipient_agent = recipient_agent
         self.client = get_openai_client()
         self.caller_thread = caller_thread
-        if isinstance(self.caller_agent, Agent) and self.caller_thread is None:
-            raise Exception("Error: initialize Session with Agent as caller must specifiy the parameter caller_thread.")
         self.cached_recipient_threads = []
         self.description = {}
         self.allowed_fails = 5
 
-    # new
+        if isinstance(self.caller_agent, Agent) and self.caller_thread is None:
+           raise Exception("Error: initialize Session with Agent as caller must specifiy the parameter caller_thread.")
+
     def get_completion_stream(self,
                               message:str, 
                               event_handler: type(AgencyEventHandler),
@@ -53,7 +53,7 @@ class Session:
        
     def get_completion(self, 
                        message:str,
-                       recipient_agent: Agent=None, 
+                       recipient_agent: Agent = None, 
                        event_handler: type(AgencyEventHandler) = None,
                        attachments: Optional[List[dict]]=None,
                        message_files: List[str]=None, 
@@ -66,11 +66,12 @@ class Session:
         recipient_thread = self._retrieve_thread_of_topic(message) # try to lock the recipient_thread
         if not recipient_thread or recipient_thread.status is not ThreadStatus.Ready:
             recipient_thread = Thread(copy_from=recipient_thread)
-            logger.info(f'New THREAD:{recipient_thread.thread_id}') #创建新的线程
+            logger.info(f'New THREAD:{recipient_thread.thread_id}')
 
         recipient_thread.status = ThreadStatus.Running
         recipient_thread.session_as_recipient = self
         recipient_thread.properties = ThreadProperty.OneOff if not is_persist else recipient_thread.properties
+
         if isinstance(self.caller_agent, User):
             recipient_thread.in_message_chain = self.caller_agent.uuid
         else:
@@ -101,23 +102,20 @@ class Session:
         try:
             while True:
                 msg = next(gen)
-                #msg.cprint()
                 yield msg
         except StopIteration as e:
             response = e.value
         except Exception as e: # 当会话超时，不能释放Thread对象
             logger.info(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
             raise e
-            # # TODO:check是否recipient thread有更新消息
+            # TODO:check是否recipient thread有更新消息
         
         # 成功得到recipient回复后，根据recipient thread属性决定如何做后处理
         if recipient_thread.properties is ThreadProperty.OneOff:
-            recipient_thread = None # 直接释放recipient thread
+            recipient_thread = None
             return response
         else: 
             # 保存recipient thread
-            # if recipient_thread not in self.cached_recipient_threads:
-            #     self.cached_recipient_threads.append(recipient_thread)
             new_history = f"# Message 1:\n {message}\n\n # Message 2:\n{response}\n"
             self._update_task_description(recipient_thread, new_history)
             self.recipient_agent.add_thread(recipient_thread) 
@@ -126,10 +124,10 @@ class Session:
             # TODO: merge to original thread.
             pass
 
+        # Unlock the recipient_thread
         recipient_thread.in_message_chain = None
         recipient_thread.status = ThreadStatus.Ready
         recipient_thread.session_as_recipient = None
-        # Unlock the recipient_thread
 
         return response
 
@@ -358,10 +356,8 @@ class Session:
         if not sessions_decription:
             return None
         
-        # sessions_decription += f"### new statement\n{self.recipient_agent.name}:{message}"
-        
         completion = self.client.chat.completions.create(
-            model="gpt-3.5-turbo-16k",  #这里要换模型吗？
+            model="gpt-3.5-turbo-16k",  # 这里可以换模型
             messages=[
                 {"role": "system", "content": classifier_instruction},
                 {"role": "user", "content": sessions_decription},
@@ -370,7 +366,6 @@ class Session:
         )
         response = completion.choices[0].message.content
         
-        # Logging
         if isinstance(self.caller_agent, User):
             caller_name = "User"
         else:
@@ -378,7 +373,6 @@ class Session:
         log_header = f"retrieve one from {len(self.recipient_agent.threads)} sessions that {caller_name} → {self.recipient_agent.name}...\n"
         logger.info(log_header + response)
         
-        #
         thread_json = json.loads(response)
         session_id = thread_json["session_id"]
         if session_id <= 0:

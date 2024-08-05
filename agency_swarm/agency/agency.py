@@ -169,23 +169,18 @@ class Agency:
 
         message_file_ids = []   # 所有文件的id
         message_file_names = None
-        # recipient_agents = [agent.name for agent in self.main_recipients]
         recipient_agent = self.ceo
+
         with gr.Blocks(js=js) as demo:
             chatbot_queue = queue.Queue()
             chatbot = gr.Chatbot(height=height)
             with gr.Row():
                 with gr.Column(scale=9):
-                    # dropdown = gr.Dropdown(label="Recipient Agent", choices=recipient_agents,
-                    #                        value=recipient_agent.name)
                     msg = gr.Textbox(label="Your Message", lines=4)
                 with gr.Column(scale=1):
                     file_upload = gr.Files(label="Files", type="filepath")
             button = gr.Button(value="Send", variant="primary")
 
-            # def handle_dropdown_change(selected_option):
-            #     nonlocal recipient_agent
-            #     recipient_agent = self.get_agent_by_name(selected_option)
 
             def handle_file_upload(file_list):
                 nonlocal message_file_ids
@@ -307,7 +302,6 @@ class Agency:
                     cls.message_output = None
                     chatbot_queue.put("[end]")
 
-
             def bot(original_message, history):
                 nonlocal message_file_ids
                 nonlocal message_file_names
@@ -353,14 +347,11 @@ class Agency:
             ).then(
                 bot, [msg, chatbot], [msg, chatbot]
             )
-            #dropdown.change(handle_dropdown_change, dropdown)
+
             file_upload.change(handle_file_upload, file_upload)
             msg.submit(user, [msg, chatbot], [msg, chatbot], queue=False).then(
                 bot, [msg, chatbot], [msg, chatbot]
             )
-            # msg.submit(user, [msg, chatbot], [msg, chatbot], queue=False).then(
-            #     bot, chatbot, chatbot
-            # )
 
             # Enable queuing for streaming intermediate outputs
             demo.queue()
