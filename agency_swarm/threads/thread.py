@@ -1,4 +1,3 @@
-from litellm import SyncCursorPage
 from openai.resources.beta.threads.messages import Message
 from agency_swarm.util.oai import get_openai_client
 from openai.types.beta.thread_create_params import Message as MessageParams
