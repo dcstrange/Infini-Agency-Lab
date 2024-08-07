@@ -32,7 +32,7 @@ class Agent():
         return [tool for tool in self.tools if issubclass(tool, BaseTool)]
 
     @property
-    def threads(self):
+    def threads(self) -> List[Thread]:
         return self._threads  # 返回数组的内容
 
     def add_thread(self, thread:Thread):
