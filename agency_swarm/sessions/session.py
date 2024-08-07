@@ -16,6 +16,7 @@ from agency_swarm.user import User
 from agency_swarm.util.oai import get_openai_client
 from agency_swarm.util.log_config import setup_logging
 from agency_swarm.util.streaming import AgencyEventHandler
+
 logger = setup_logging()
 
 class Session:
@@ -108,7 +109,7 @@ class Session:
         except Exception as e: # 当会话超时，不能释放Thread对象
             logger.info(f"Exception{inspect.currentframe().f_code.co_name}：{str(e)}")
             raise e
-            # # TODO:check是否recipient thread有更新消息
+            # TODO:check是否recipient thread有更新消息
         
         # 成功得到recipient回复后，根据recipient thread属性决定如何做后处理
         if recipient_thread.properties is ThreadProperty.OneOff:
@@ -361,7 +362,7 @@ class Session:
         # sessions_decription += f"### new statement\n{self.recipient_agent.name}:{message}"
         
         completion = self.client.chat.completions.create(
-            model="gpt-3.5-turbo-16k",  #这里要换模型吗？
+            model="gpt-3.5-turbo-16k",  # 这里要换模型吗？
             messages=[
                 {"role": "system", "content": classifier_instruction},
                 {"role": "user", "content": sessions_decription},

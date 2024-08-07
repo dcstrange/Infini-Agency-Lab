@@ -9,7 +9,7 @@ class ThreadStatus(Enum):
 class ThreadProperty(Enum):
     Persist = "Persist"
     OneOff = "One-Off"
-    CoW = "Copy on Write"
+    CoW = "Copy on Write" # 语言模型正在调用函数
 
 
 class Thread:

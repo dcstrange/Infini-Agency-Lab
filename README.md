@@ -1,6 +1,9 @@
 ## 可以或需要新增的功能
 
-* **Session**部分的继续完善：代码中有少部分未完成的点
+* **Session**部分的完善：代码中有少部分未完成的点
+
+  * thread.py中完成对thread的copy功能 :white_check_mark:
+  * ThreadProperty.CoW模式下的操作？
 
 * **对其他模型API的支持**：可选的方案是使用[astra-assistants]([datastax/astra-assistants-api: Drop in replacement for the OpenAI Assistants API (github.com)](https://github.com/datastax/astra-assistants-api))的服务，该项目调用[LiteLLM](https://github.com/BerriAI/litellm)的服务，将当前流行的模型都封装成`OpenAI`的assistant AI样式的接口，部分模型不支持streaming服务
 
