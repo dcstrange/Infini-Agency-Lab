@@ -10,6 +10,24 @@ from agency_swarm.agency.agency import Agency
 from agency_swarm.tools.oai import FileSearch, CodeInterpreter
 from agency_swarm.tools.BaseTool import BaseTool
 
+import getpass
+
+import json
+
+def get_my_openai_key():
+    try:
+        with open("C:/Users/fei19_vysxm3p/Documents/Workstation/Git/Infini-Agency-Lab/MyConfig.json", 'r') as f:
+            config = json.load(f)
+            return config['openai']['api_key']
+    except FileNotFoundError:
+        print("配置文件不存在")
+        return None
+    except KeyError:
+        print("配置文件格式错误")
+        return None
+
+set_openai_key(get_my_openai_key())
+
 class PrintTool(BaseTool):
     def run(self, **kwargs):
         print("This is a test tool from BaseTool.")
@@ -41,9 +59,13 @@ test_agent2 = Agent(name="Test Agent2",
 
 agency = Agency([
     ceo, [ceo, test_agent, test_agent2],
-], shared_instructions="", async_tool_calls=False)
+], shared_instructions="")
 
-# agency.demo_gradio()
+agency.demo_gradio()
 
-print(agency.get_completion("Use 2 print tools", yield_messages=False))
+# print(agency.get_completion("Use 2 print tools", yield_messages=False))
+# print(agency.get_completion("Use 2 print tools", yield_messages=False))
+# print(agency.get_completion("Use 2 print tools", yield_messages=False))
+# print(agency.get_completion("Use 2 print tools", yield_messages=False))
+# print(agency.get_completion("Use 2 print tools", yield_messages=False))
 

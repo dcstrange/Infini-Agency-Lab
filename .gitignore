@@ -162,4 +162,11 @@ cython_debug/
 settings.json
 .DS_Store
 tests/test_agents/
-test_agents/
+#test_agents/
+
+
+# User secret configuration
+MyConfig.json
+**/credentials.json
+#vscode
+.vscode/*
